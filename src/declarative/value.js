@@ -41,7 +41,7 @@ function rootForPath(path, context) {
     case "key":
       return { value: context.key, parts };
     case "index":
-      return { value: context.index, parts: ["value", ...parts] };
+      return { value: context.index, parts };
     case "app":
       return { value: context.app, parts };
     default:

@@ -21,6 +21,12 @@ npm start
 
 初学者真正需要编辑的文件只有 YAML。Node.js 启动文件只是固定模板：examples/easy-tasks.js。
 
+## 超详细文档
+
+完整中文文档从安装、页面模型、布局、变量、动作、页面栈、Service、组件、高级 API、内部架构、排错到完整项目模板，共 12 章：
+
+[打开完整文档目录](docs/README.md)
+
 ## 页面模型
 
 ~~~text
@@ -181,4 +187,3 @@ YAML 只调用已经注册的名字：
 - src/declarative/page.js：布局编译与动作执行
 - src/declarative/value.js：变量路径、模板与条件
 - src/core/page-manager.js：页面栈
-

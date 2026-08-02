@@ -76,7 +76,7 @@ test("YAML view templates compile into the existing renderer", () => {
                 type: "list",
                 items: "data.tasks",
                 selected: "state.selected",
-                label: "{{ item.title }}"
+                label: "{{ index }} - {{ item.title }}"
               }
             ]
           }
@@ -91,7 +91,7 @@ test("YAML view templates compile into the existing renderer", () => {
   page._attach(app);
   const lines = renderView(page.render(), 30, 4, { color: false });
   assert.equal(lines.some((line) => line.includes("Tasks: 1")), true);
-  assert.equal(lines.some((line) => line.includes("Read YAML")), true);
+  assert.equal(lines.some((line) => line.includes("0 - Read YAML")), true);
 });
 
 test("declarative pages can call an allowlisted service", async () => {
