@@ -1,0 +1,18 @@
+{
+  "name": "page-tui",
+  "version": "0.1.0",
+  "description": "A small, dependency-free Node.js TUI framework with page-stack navigation.",
+  "private": true,
+  "main": "src/index.js",
+  "type": "commonjs",
+  "dependencies": {
+    "yaml": "^2.8.1"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node examples/easy-tasks.js",
+    "test": "node --test"
+  }
+}
