@@ -13,6 +13,7 @@
 - YAML、组件、action 和页面跳转校验。
 - 一键生成初学者页面。
 - 一键插入完整页面模板。
+- Webview 实时预览页面布局和变量结果。
 - 一键运行当前项目。
 - 状态栏显示当前页面是否有错误。
 
@@ -218,6 +219,25 @@ npm start
 
 如果项目使用其他启动命令，在设置中修改 pageTui.runCommand。
 
+### 第六步：打开实时预览
+
+打开命令面板，运行：
+
+~~~text
+Page TUI: 打开实时预览
+~~~
+
+扩展会在编辑器旁边打开一个终端风格的预览面板。它会：
+
+- 读取当前打开的 `app.yaml` 或独立 Page TUI YAML 文件。
+- 编辑文件后自动刷新，不需要手动保存。
+- 用页面下拉框切换 `pages` 中的页面。
+- 展示 text、input、column、row、panel、list、divider 和 spacer。
+- 计算 `data`、页面 `state`、`params`、`item` 和常用模板函数。
+- YAML 暂时写错时显示错误，修正后自动恢复。
+
+这是布局预览，不会执行 keys 动作、Node.js service、网络请求或数据库操作。需要验证真实交互时，使用“Page TUI: 运行当前项目”。
+
 ## 5. 校验功能
 
 扩展会在编辑时检查：
@@ -248,6 +268,7 @@ Page TUI: 校验当前页面
 | Page TUI: 插入页面模板 | 在当前编辑器位置插入完整模板 |
 | Page TUI: 校验当前页面 | 手动运行页面校验 |
 | Page TUI: 将当前文件设为 Page TUI YAML | 手动启用语言支持 |
+| Page TUI: 打开实时预览 | 在编辑器旁边实时查看页面布局 |
 | Page TUI: 运行当前项目 | 在终端执行启动命令 |
 | Page TUI: 打开中文文档 | 打开仓库的中文文档目录 |
 
@@ -306,6 +327,7 @@ Page TUI: 将当前文件设为 Page TUI YAML
 ~~~text
 vscode-extension/
 ├── extension.js                  # VS Code 激活入口、补全、悬停和命令
+├── preview.js                    # Webview 预览渲染和变量模板计算
 ├── validation.js                 # 不依赖 VS Code 的页面校验逻辑
 ├── starter.js                    # 一键生成的页面模板
 ├── package.json                  # 扩展清单和命令注册
@@ -318,7 +340,7 @@ vscode-extension/
 
 ## 10. 当前边界
 
-这个扩展不会执行 YAML 中的任意 JavaScript，也不会替代 Page TUI runtime。
+这个扩展不会执行 YAML 中的任意 JavaScript，也不会替代 Page TUI runtime。实时预览只负责绘制静态布局，不会模拟真实按键动作或执行 service。
 
 当前不会自动知道：
 
@@ -346,4 +368,7 @@ npm --prefix vscode-extension test
 - 仓库中的真实示例没有结构错误。
 - 未知组件和未注册页面可以被发现。
 - 独立页面文件可以被校验。
+- 页面字段补全会在普通 YAML 模式中触发。
+- 实时预览可以渲染页面、变量、列表和页面切换。
+- YAML 错误会显示为预览面板错误，而不是导致扩展崩溃。
 - YAML 语法错误可以被发现。

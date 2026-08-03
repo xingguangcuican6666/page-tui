@@ -97,7 +97,7 @@ const { createApp, Page, ui } = require("page-tui");
 - 主题和 ANSI 样式
 - 页面栈生命周期
 - 非 TTY 输出和交互式终端
-- VS Code 扩展：补全、悬停说明、页面校验、模板和运行命令
+- VS Code 扩展：补全、悬停说明、页面校验、实时预览、模板和运行命令
 
 ## 当前实现的边界
 

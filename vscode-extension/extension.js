@@ -1,7 +1,9 @@
 const vscode = require("vscode");
+const crypto = require("node:crypto");
 const path = require("node:path");
 const YAML = require("yaml");
 const { validatePageTui } = require("./validation");
+const { createPreviewHtml, renderPreview } = require("./preview");
 const STARTER_PAGE = require("./starter");
 
 const COMPONENT_HELP = {
@@ -78,6 +80,12 @@ const ACTION_FIELDS = {
 
 let diagnostics;
 let statusBar;
+let previewPanel;
+let previewDocument;
+let previewPage;
+let previewTimer;
+let previewReady = false;
+let previewNonce;
 
 function isPageTuiDocument(document) {
   if (!document) return false;
@@ -445,6 +453,81 @@ function openDocs() {
   vscode.env.openExternal(vscode.Uri.parse(url));
 }
 
+function previewMessage(model) {
+  return {
+    type: "update",
+    body: model.body,
+    error: model.error,
+    pageName: model.pageName,
+    pageNames: model.pageNames
+  };
+}
+
+function updatePreview() {
+  if (!previewPanel || !previewDocument) return;
+  const model = renderPreview(previewDocument.getText(), previewPage);
+  if (model.pageName) previewPage = model.pageName;
+  if (!previewReady) {
+    previewPanel.webview.html = createPreviewHtml(model, previewNonce);
+    return;
+  }
+  previewPanel.webview.postMessage(previewMessage(model));
+}
+
+function schedulePreviewUpdate(document) {
+  if (!previewPanel || !previewDocument || document.uri.toString() !== previewDocument.uri.toString()) return;
+  clearTimeout(previewTimer);
+  previewTimer = setTimeout(() => {
+    previewTimer = undefined;
+    updatePreview();
+  }, 120);
+}
+
+function openPreview() {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor || !isPageTuiDocument(editor.document)) {
+    vscode.window.showWarningMessage("请先打开 app.yaml 或 Page TUI YAML 页面。");
+    return;
+  }
+
+  const sameDocument = previewDocument?.uri.toString() === editor.document.uri.toString();
+  previewDocument = editor.document;
+  if (!sameDocument) previewPage = undefined;
+
+  if (previewPanel) {
+    previewPanel.reveal(vscode.ViewColumn.Beside);
+    updatePreview();
+    return;
+  }
+
+  previewReady = false;
+  previewNonce = crypto.randomBytes(16).toString("hex");
+  previewPanel = vscode.window.createWebviewPanel(
+    "pageTuiPreview",
+    "Page TUI 实时预览",
+    vscode.ViewColumn.Beside,
+    { enableScripts: true, retainContextWhenHidden: true }
+  );
+  previewPanel.onDidDispose(() => {
+    clearTimeout(previewTimer);
+    previewTimer = undefined;
+    previewPanel = undefined;
+    previewDocument = undefined;
+    previewPage = undefined;
+    previewReady = false;
+  });
+  previewPanel.webview.onDidReceiveMessage((message) => {
+    if (message?.type === "ready") {
+      previewReady = true;
+      updatePreview();
+    } else if (message?.type === "selectPage") {
+      previewPage = typeof message.page === "string" ? message.page : undefined;
+      updatePreview();
+    }
+  });
+  updatePreview();
+}
+
 function activate(context) {
   diagnostics = vscode.languages.createDiagnosticCollection("page-tui");
   statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
@@ -470,12 +553,14 @@ function activate(context) {
     vscode.commands.registerCommand("pageTui.insertTemplate", insertTemplate),
     vscode.commands.registerCommand("pageTui.validate", validateCurrent),
     vscode.commands.registerCommand("pageTui.setLanguage", setLanguage),
+    vscode.commands.registerCommand("pageTui.preview", openPreview),
     vscode.commands.registerCommand("pageTui.run", runProject),
     vscode.commands.registerCommand("pageTui.openDocs", openDocs),
     vscode.workspace.onDidChangeTextDocument((event) => {
       if (vscode.workspace.getConfiguration("pageTui").get("autoValidate", true)) {
         updateDiagnostics(event.document);
       }
+      schedulePreviewUpdate(event.document);
     }),
     vscode.window.onDidChangeActiveTextEditor((editor) => {
       if (editor) {
@@ -492,7 +577,10 @@ function activate(context) {
   }
 }
 
-function deactivate() {}
+function deactivate() {
+  clearTimeout(previewTimer);
+  if (previewPanel) previewPanel.dispose();
+}
 
 module.exports = {
   activate,

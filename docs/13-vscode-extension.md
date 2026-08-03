@@ -35,6 +35,7 @@ vscode-extension/
 - 输入 - 可以补全 action。
 - 输入 bind: 可以补全变量路径。
 - 输入 page: 可以补全页面名称。
+- 打开实时预览可以看到布局和变量结果。
 - 鼠标悬停会显示中文解释。
 - 错误会显示在 Problems 面板。
 - 可以直接生成完整初学者页面。
@@ -248,7 +249,27 @@ node start.js
 }
 ~~~
 
-## 9. 推荐工作习惯
+## 9. 实时预览
+
+打开命令面板，运行：
+
+~~~text
+Page TUI: 打开实时预览
+~~~
+
+扩展会在当前编辑器旁边打开一个 Webview 预览面板。它不是截图，而是根据当前 YAML 重新计算并绘制页面，所以修改文件后会自动刷新：
+
+- 页面布局改变后，预览约 120 毫秒内更新。
+- `pages` 中的页面可以用顶部下拉框切换。
+- `data`、页面 `state`、`params`、`item` 和模板函数会计算出示例结果。
+- text、input、column、row、panel、list、divider 和 spacer 都有对应的预览样式。
+- YAML 正在输入、暂时无法解析时，面板显示错误；修正后自动恢复。
+
+例如打开 `examples/easy-tasks/app.yaml` 后，运行命令即可看到 `home`、`detail` 和 `create` 三个页面。选择 `detail` 时，由于没有真实运行时传入 `params.task`，依赖它的文本可能为空，这是正常的静态预览结果。
+
+预览只执行安全的 YAML 解析、变量读取和模板计算，不会执行 keys 动作、Node.js service、网络请求或数据库操作。要验证真实交互，请继续使用“Page TUI: 运行当前项目”。
+
+## 10. 推荐工作习惯
 
 建议按下面顺序写页面：
 
@@ -263,7 +284,7 @@ node start.js
 
 不要一开始就同时修改布局、变量、动作和 service。分层修改更容易定位问题。
 
-## 10. 扩展与 Page TUI 的边界
+## 11. 扩展与 Page TUI 的边界
 
 扩展提供编辑体验：
 
@@ -296,13 +317,13 @@ Page TUI runtime 负责运行体验：
       bind: state.title
 ~~~
 
-## 11. 当前限制
+## 12. 当前限制
 
 当前版本是轻量扩展，暂时不会：
 
 - 自动推断数据库返回类型。
 - 检查自定义 service 名称是否真的注册。
-- 执行页面预览模拟器。
+- 执行真实 runtime 的按键和 service 模拟。
 - 自动生成 Node.js service。
 - 替代完整 YAML 语言服务器。
 

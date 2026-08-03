@@ -67,6 +67,14 @@ test("app.yaml activates for the normal YAML language too", () => {
   assert.equal(packageJson.activationEvents.includes("onLanguage:yaml"), true);
 });
 
+test("实时预览命令已注册", () => {
+  assert.equal(packageJson.activationEvents.includes("onCommand:pageTui.preview"), true);
+  assert.equal(
+    packageJson.contributes.commands.some((command) => command.command === "pageTui.preview"),
+    true
+  );
+});
+
 test("page fields are suggested on an empty page line", () => {
   const document = documentFrom([
     "pages:",
