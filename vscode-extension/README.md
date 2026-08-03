@@ -143,6 +143,8 @@ pages:
     # 在这一行按 Ctrl+Space
 ~~~
 
+在 `keys` 的直接子级输入 `e`、`u` 等按键名时，补全会自动过滤出 `enter`、`escape`、`up`、`down` 等键。`keys` 下面的 `-` action 模板会按照当前 YAML 行的缩进生成，不需要手动整理多行 `set`、`push` 或 `if`。
+
 补全菜单中带有 `Page TUI ·` 的项目来自本扩展。编辑器里灰色、斜体、还没有真正写入文件的文字是 VS Code 的内联建议，通常来自 Copilot 或其他 AI 扩展；它不是 Page TUI 补全。需要确定地打开本扩展菜单时，请按 Ctrl+Space。
 
 在 keys 的 action 列表中输入 - ，可以看到：
@@ -233,6 +235,7 @@ Page TUI: 打开实时预览
 - 编辑文件后自动刷新，不需要手动保存。
 - 用页面下拉框切换 `pages` 中的页面。
 - 点击 list 项目、输入文字，或使用方向键、Enter、Escape 和普通字符测试页面交互。
+- 在“实时变量”区域查看当前 `data`、`state` 和 `params`，点击“重置预览”恢复 YAML 初始状态。
 - 展示 text、input、column、row、panel、list、divider 和 spacer。
 - 计算 `data`、页面 `state`、`params`、`item` 和常用模板函数。
 - YAML 暂时写错时显示错误，修正后自动恢复。

@@ -196,6 +196,8 @@ keys:
         bind: state.item
 ~~~
 
+在 `keys` 的直接子级输入按键名前缀时，例如输入 `e`，会自动提示 `enter` 和 `escape`。action 多行模板会根据当前列表项的 YAML 缩进生成，避免 Tab 接受补全后出现错位。
+
 ## 7. 校验错误怎么看
 
 扩展会把结构错误显示为红色波浪线，并在 Problems 面板显示中文消息。
@@ -262,6 +264,7 @@ Page TUI: 打开实时预览
 - 页面布局改变后，预览约 120 毫秒内更新。
 - `pages` 中的页面可以用顶部下拉框切换。
 - 可以点击 list 项目、输入文字，或使用方向键、Enter、Escape 和普通字符测试交互。
+- 面板下方会实时显示 `data`、当前页面 `state` 和 `params`，点击“重置预览”可以恢复初始变量和初始页面。
 - `data`、页面 `state`、`params`、`item` 和模板函数会计算出示例结果。
 - text、input、column、row、panel、list、divider 和 spacer 都有对应的预览样式。
 - YAML 正在输入、暂时无法解析时，面板显示错误；修正后自动恢复。

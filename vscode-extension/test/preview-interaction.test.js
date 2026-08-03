@@ -67,3 +67,21 @@ test("预览 Webview 注册了交互事件桥", () => {
   assert.match(html, /type: "interaction"/);
   assert.match(html, /addEventListener\("keydown"/);
 });
+
+test("预览显示实时变量并可以重置会话", () => {
+  const session = createPreviewSession(source);
+  assert.equal(session.model().variables.state.title, "");
+
+  session.dispatch({ type: "input", path: "state.title", value: "changed" });
+  assert.equal(session.model().variables.state.title, "changed");
+
+  session.dispatch({ type: "key", key: "enter" });
+  assert.equal(session.model().pageName, "detail");
+  session.reset();
+  assert.equal(session.model().pageName, "home");
+  assert.equal(session.model().variables.state.title, "");
+
+  const html = createPreviewHtml(session.model());
+  assert.match(html, /实时变量/);
+  assert.match(html, /重置预览/);
+});

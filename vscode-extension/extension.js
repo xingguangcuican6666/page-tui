@@ -51,6 +51,7 @@ const KEY_NAMES = ["up", "down", "left", "right", "enter", "escape", "space", "b
 const STYLES = ["title", "primary", "selected", "muted", "border", "success", "warning", "danger", "input"];
 const PAGE_FIELDS = ["title", "state", "layout", "keys", "on"];
 const LAYOUT_FIELDS = ["type", "children", "child", "value", "bind", "template", "visible", "style", "padding", "gap", "flex"];
+const KEY_TRIGGER_CHARACTERS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
 const COMPONENT_FIELDS = {
   text: ["value", "bind", "template", "style", "visible"],
   input: ["bind", "placeholder", "character", "style", "visible"],
@@ -110,6 +111,7 @@ function completion(label, kind, detail, insertText, documentation) {
   const item = new vscode.CompletionItem(label, kind);
   item.detail = "Page TUI · " + detail;
   item.sortText = "0_" + label;
+  item.keepWhitespace = true;
   item.insertText = insertText instanceof vscode.SnippetString
     ? insertText
     : new vscode.SnippetString(insertText || label);
@@ -119,24 +121,6 @@ function completion(label, kind, detail, insertText, documentation) {
 
 function lineBefore(document, position) {
   return document.lineAt(position.line).text.slice(0, position.character);
-}
-
-function inSection(document, lineNumber, section) {
-  let sectionIndent = -1;
-  for (let index = lineNumber; index >= 0; index -= 1) {
-    const line = document.lineAt(index).text;
-    if (!line.trim() || line.trim().startsWith("#")) continue;
-    const indent = line.search(/\S|$/);
-    const match = line.match(/^\s*([A-Za-z0-9_-]+):\s*$/);
-    if (match && match[1] === section) {
-      sectionIndent = indent;
-      break;
-    }
-    if (indent === 0 && match && match[1] !== section) break;
-  }
-  if (sectionIndent < 0) return false;
-  const currentIndent = document.lineAt(lineNumber).text.search(/\S|$/);
-  return currentIndent > sectionIndent;
 }
 
 function collectPaths(value, root, output, prefix = root, depth = 0) {
@@ -215,6 +199,35 @@ function fieldCompletions(fields) {
   ));
 }
 
+function isKeyFieldContext(document, lineNumber) {
+  const line = document.lineAt(lineNumber).text;
+  if (!/^\s*[A-Za-z0-9_-]*\s*$/.test(line)) return false;
+  const stack = syntaxStack(document, lineNumber);
+  return stack[stack.length - 1]?.key === "keys";
+}
+
+function keyCompletions(document, position, prefix) {
+  if (!isKeyFieldContext(document, position.line)) return [];
+  return KEY_NAMES
+    .filter((name) => name.startsWith(prefix))
+    .map((name) => completion(
+      name,
+      vscode.CompletionItemKind.Event,
+      "Page TUI 按键",
+      name + ":"
+    ));
+}
+
+function indentActionSnippet(document, position, body) {
+  const line = document.lineAt(position.line).text;
+  const baseIndent = line.match(/^\s*/)?.[0].length || 0;
+  const continuationIndent = " ".repeat(baseIndent + 2);
+  return body.split("\n").map((part, index) => {
+    if (index === 0 || !part) return part;
+    return continuationIndent + part;
+  }).join("\n");
+}
+
 function provideCompletions(document, position) {
   if (!isPageTuiDocument(document)) return [];
   const before = lineBefore(document, position);
@@ -271,19 +284,13 @@ function provideCompletions(document, position) {
       name,
       vscode.CompletionItemKind.Keyword,
       ACTION_HELP[name]?.[0] || "Page TUI 动作",
-      body.replaceAll("\\\"", ""),
+      indentActionSnippet(document, position, body.replaceAll("\\\"", "")),
       ACTION_HELP[name]?.[1]
     ));
   }
 
-  if (inSection(document, position.line, "keys") && prefix.length === 0) {
-    return KEY_NAMES.map((name) => completion(
-      name,
-      vscode.CompletionItemKind.Event,
-      "Page TUI 按键",
-      name + ":"
-    ));
-  }
+  const keys = keyCompletions(document, position, prefix);
+  if (keys.length) return keys;
 
   const fields = structuralFields(document, position.line);
   if (fields.length) return fieldCompletions(fields);
@@ -460,7 +467,8 @@ function previewMessage(model) {
     body: model.body,
     error: model.error,
     pageName: model.pageName,
-    pageNames: model.pageNames
+    pageNames: model.pageNames,
+    variables: model.variables || {}
   };
 }
 
@@ -533,6 +541,9 @@ function openPreview() {
     } else if (message?.type === "interaction") {
       previewSession?.dispatch(message.event || {});
       updatePreview();
+    } else if (message?.type === "reset") {
+      previewSession?.reset();
+      updatePreview();
     }
   });
   updatePreview();
@@ -556,7 +567,8 @@ function activate(context) {
       ".",
       "{",
       ":",
-      " "
+      " ",
+      ...KEY_TRIGGER_CHARACTERS
     ),
     vscode.languages.registerHoverProvider(selector, { provideHover }),
     vscode.commands.registerCommand("pageTui.createStarter", createStarter),

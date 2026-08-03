@@ -382,7 +382,13 @@ function renderDocument(document, requestedPage, overrides = {}) {
   const pageNames = Object.keys(normalized.pages);
   if (!pageNames.length) {
     const message = "没有找到 pages 或 layout。请打开 app.yaml，或在独立页面中提供 layout。";
-    return { pageNames: [], pageName: "", body: errorBody(message), error: message };
+    return {
+      pageNames: [],
+      pageName: "",
+      body: errorBody(message),
+      error: message,
+      variables: { data: normalized.data, state: {}, params: {} }
+    };
   }
 
   const pageName = requestedPage && pageNames.includes(requestedPage)
@@ -393,7 +399,13 @@ function renderDocument(document, requestedPage, overrides = {}) {
   const page = normalized.pages[pageName];
   if (!page || typeof page !== "object") {
     const message = `页面 ${pageName} 是外部文件引用；当前预览需要页面内容直接写在这个 YAML 文件中。`;
-    return { pageNames, pageName, body: errorBody(message), error: message };
+    return {
+      pageNames,
+      pageName,
+      body: errorBody(message),
+      error: message,
+      variables: { data: normalized.data, state: {}, params: {} }
+    };
   }
 
   const context = {
@@ -410,7 +422,13 @@ function renderDocument(document, requestedPage, overrides = {}) {
   const body = layout === undefined
     ? errorBody(`页面 ${pageName} 没有 layout。`)
     : `<div class="page-title">${escapeHtml(title)}</div>${renderNode(layout, context)}`;
-  return { pageNames, pageName, body, error: layout === undefined ? `页面 ${pageName} 没有 layout。` : null };
+  return {
+    pageNames,
+    pageName,
+    body,
+    error: layout === undefined ? `页面 ${pageName} 没有 layout。` : null,
+    variables: { data: context.data, state: context.state, params: context.params }
+  };
 }
 
 function renderPreview(source, requestedPage) {
@@ -419,7 +437,7 @@ function renderPreview(source, requestedPage) {
     document = YAML.parse(source) || {};
   } catch (error) {
     const message = `YAML 解析失败：${error.message}`;
-    return { pageNames: [], pageName: "", body: errorBody(message), error: message };
+    return { pageNames: [], pageName: "", body: errorBody(message), error: message, variables: {} };
   }
   return renderDocument(document, requestedPage);
 }
@@ -436,7 +454,8 @@ function createPreviewSession(source, requestedPage) {
   if (parseError) {
     return {
       dispatch: () => renderPreview(source, requestedPage),
-      model: () => renderPreview(source, requestedPage)
+      model: () => renderPreview(source, requestedPage),
+      reset: () => undefined
     };
   }
 
@@ -447,6 +466,8 @@ function createPreviewSession(source, requestedPage) {
     : pageNames.includes(normalized.initial)
       ? normalized.initial
       : pageNames[0];
+  const initialPageName = pageName;
+  const initialData = cloneValue(normalized.data);
   let state;
   let params;
   const stack = [];
@@ -466,6 +487,13 @@ function createPreviewSession(source, requestedPage) {
   }
 
   if (pageName) loadPage(pageName);
+
+  function reset() {
+    normalized.data = cloneValue(initialData);
+    stack.length = 0;
+    pageName = initialPageName;
+    if (pageName) loadPage(pageName);
+  }
 
   function contextFor(key, index) {
     return {
@@ -604,7 +632,7 @@ function createPreviewSession(source, requestedPage) {
     return model();
   }
 
-  return { dispatch, model };
+  return { dispatch, model, reset };
 }
 
 function createPreviewHtml(model, nonce = "page-tui-preview") {
@@ -612,6 +640,7 @@ function createPreviewHtml(model, nonce = "page-tui-preview") {
     ? model.pageNames.map((name) => `<option value="${escapeHtml(name)}"${name === model.pageName ? " selected" : ""}>${escapeHtml(name)}</option>`).join("")
     : '<option value="">没有可预览的页面</option>';
   const initialStatus = model.error ? "YAML 或页面结构有问题" : "实时同步";
+  const variables = JSON.stringify(model.variables || {}, null, 2);
   return `<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -624,6 +653,8 @@ body { margin: 0; padding: 16px; color: #d7e0e5; background: #11181d; font-famil
 .toolbar { display: flex; align-items: center; gap: 10px; margin: 0 auto 14px; max-width: 980px; color: #9daeb8; font-size: 12px; }
 .toolbar strong { color: #e9f1f4; font-size: 14px; }
 .toolbar select { min-width: 150px; padding: 5px 8px; border: 1px solid #40515a; border-radius: 5px; color: #e9f1f4; background: #1d2930; }
+.toolbar button { padding: 5px 9px; border: 1px solid #40515a; border-radius: 5px; color: #e9f1f4; background: #1d2930; cursor: pointer; }
+.toolbar button:hover { border-color: #6ed6e8; background: #24353d; }
 .toolbar .status { margin-left: auto; color: #8aa6a0; }
 .preview-frame { width: min(100%, 980px); min-height: 520px; margin: 0 auto; padding: 22px; overflow: auto; border: 1px solid #36464e; border-radius: 9px; background: #0b1115; box-shadow: 0 12px 36px rgba(0, 0, 0, .25); font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace; line-height: 1.45; }
 .page-title { margin-bottom: 16px; color: #6ed6e8; font-weight: 700; }
@@ -661,6 +692,9 @@ body { margin: 0; padding: 16px; color: #d7e0e5; background: #11181d; font-famil
 .theme-warning { color: #f0d47b; }
 .theme-danger { color: #ff7f87; }
 .theme-input { color: #f3f7f8; text-decoration: underline; text-decoration-color: #6ed6e8; }
+.variables { width: min(100%, 980px); margin: 14px auto 0; border: 1px solid #36464e; border-radius: 6px; background: #101a20; }
+.variables summary { padding: 8px 12px; color: #9edce4; cursor: pointer; }
+.variables pre { max-height: 260px; margin: 0; padding: 0 12px 12px; overflow: auto; color: #b7c8ce; font: 12px/1.45 "Cascadia Code", "SFMono-Regular", Consolas, monospace; white-space: pre-wrap; }
 .preview-error-card { max-width: 760px; padding: 16px; border: 1px solid #9b4d57; border-radius: 6px; color: #ffb2b7; background: #2b171c; }
 .preview-error-card strong { display: block; margin-bottom: 10px; color: #ff7f87; }
 .preview-error-card pre { margin: 0; overflow: auto; white-space: pre-wrap; font-family: inherit; }
@@ -668,15 +702,19 @@ body { margin: 0; padding: 16px; color: #d7e0e5; background: #11181d; font-famil
 </style>
 </head>
 <body>
-<div class="toolbar"><strong>Page TUI 实时预览</strong><label for="page">页面</label><select id="page" ${model.pageNames.length ? "" : "disabled"}>${options}</select><span id="status" class="status">${initialStatus}</span></div>
+<div class="toolbar"><strong>Page TUI 实时预览</strong><label for="page">页面</label><select id="page" ${model.pageNames.length ? "" : "disabled"}>${options}</select><button id="reset" type="button">重置预览</button><span id="status" class="status">${initialStatus}</span></div>
 <main id="preview" class="preview-frame">${model.body}</main>
+<details class="variables" open><summary>实时变量（data / state / params）</summary><pre id="variables">${escapeHtml(variables)}</pre></details>
 <script nonce="${nonce}">
 const vscode = acquireVsCodeApi();
 const pageSelect = document.getElementById("page");
+const resetButton = document.getElementById("reset");
 const preview = document.getElementById("preview");
 const status = document.getElementById("status");
+const variablesView = document.getElementById("variables");
 let focusState;
 pageSelect.addEventListener("change", () => vscode.postMessage({ type: "selectPage", page: pageSelect.value }));
+resetButton.addEventListener("click", () => vscode.postMessage({ type: "reset" }));
 preview.addEventListener("click", (event) => {
   const item = event.target.closest("[data-preview-list-item]");
   if (!item) return;
@@ -737,6 +775,7 @@ window.addEventListener("message", (event) => {
   }
   pageSelect.disabled = message.pageNames.length === 0;
   status.textContent = message.error ? "YAML 或页面结构有问题" : "实时同步";
+  variablesView.textContent = JSON.stringify(message.variables || {}, null, 2);
   if (focusState) {
     const nextInput = Array.from(preview.querySelectorAll("[data-preview-input]"))
       .find((input) => input.dataset.previewInput === focusState.path);

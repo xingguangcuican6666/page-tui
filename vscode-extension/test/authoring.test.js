@@ -87,6 +87,32 @@ test("page fields are suggested on an empty page line", () => {
   assert.equal(items.some((item) => item.label === "keys"), true);
 });
 
+test("keys are suggested while typing a key name", () => {
+  const document = documentFrom([
+    "pages:",
+    "  home:",
+    "    keys:",
+    "      e"
+  ]);
+  const items = provideCompletions(document, { line: 3, character: 7 });
+  assert.equal(items.some((item) => item.label === "enter"), true);
+  assert.equal(items.some((item) => item.label === "escape"), true);
+});
+
+test("action snippets preserve the YAML indentation of the current list item", () => {
+  const document = documentFrom([
+    "pages:",
+    "  home:",
+    "    keys:",
+    "      enter:",
+    "        - "
+  ]);
+  const items = provideCompletions(document, { line: 4, character: 10 });
+  const set = items.find((item) => item.label === "set");
+  assert.ok(set);
+  assert.match(set.insertText.value, /\n {12}path:/);
+});
+
 test("the extension does not provide AI inline text", () => {
   assert.equal(extensionSource.includes("registerInlineCompletionItemProvider"), false);
 });
