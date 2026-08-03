@@ -198,6 +198,14 @@ keys:
 
 在 `keys` 的直接子级输入按键名前缀时，例如输入 `e`，会自动提示 `enter` 和 `escape`。action 多行模板会根据当前列表项的 YAML 缩进生成，避免 Tab 接受补全后出现错位。
 
+列表项补全会先判断根节点：
+
+- `data` 下提供 `object`、`value` 两种数据项模板。
+- `layout.children` 下提供 `text`、`input`、`column`、`row`、`panel`、`list` 等组件节点模板。
+- `keys`、`on`、`then`、`else` 下才提供 `set`、`push`、`if` 等动作模板。
+
+`data` 的字段名由项目自己定义，扩展不会凭空生成 `name`、`title` 等业务字段；灰色斜体文字通常是 VS Code/Copilot 的 AI 内联建议，不属于 Page TUI 补全。
+
 ## 7. 校验错误怎么看
 
 扩展会把结构错误显示为红色波浪线，并在 Problems 面板显示中文消息。

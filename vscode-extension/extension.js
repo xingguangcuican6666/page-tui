@@ -80,6 +80,39 @@ const ACTION_FIELDS = {
   if: ["condition", "then", "else"]
 };
 const ACTION_CONTAINER_KEYS = new Set(["keys", "on", "then", "else"]);
+const DOCUMENT_SELECTOR = [
+  { language: "page-tui-yaml" },
+  { language: "yaml" }
+];
+const DATA_LIST_ITEMS = [
+  {
+    label: "object",
+    detail: "数据对象项",
+    body: "${1:key}: ${2:value}"
+  },
+  {
+    label: "value",
+    detail: "数据值项",
+    body: "${1:value}"
+  }
+];
+const LAYOUT_LIST_ITEMS = [
+  { label: "text", detail: "文本组件节点", body: "type: text\nvalue: ${1:文本}" },
+  { label: "input", detail: "输入组件节点", body: "type: input\nbind: ${1:state.value}" },
+  { label: "column", detail: "垂直布局节点", body: "type: column\nchildren:\n  - ${1:text}" },
+  { label: "row", detail: "水平布局节点", body: "type: row\nchildren:\n  - ${1:text}" },
+  { label: "panel", detail: "面板组件节点", body: "type: panel\ntitle: \"${1:标题}\"\nchild:\n  type: text" },
+  { label: "list", detail: "列表组件节点", body: "type: list\nitems: ${1:data.items}\nselected: ${2:state.selected}" },
+  { label: "divider", detail: "分隔线组件节点", body: "type: divider" },
+  { label: "spacer", detail: "空白组件节点", body: "type: spacer\nheight: ${1:1}" }
+];
+const PAGE_LIST_ITEMS = [
+  {
+    label: "page",
+    detail: "页面节点",
+    body: "name: ${1:detail}\ntitle: \"${2:详情}\"\nlayout:\n  type: ${3:column}"
+  }
+];
 
 let diagnostics;
 let statusBar;
@@ -112,6 +145,7 @@ function markdown(text) {
 function completion(label, kind, detail, insertText, documentation) {
   const item = new vscode.CompletionItem(label, kind);
   item.detail = "Page TUI · " + detail;
+  item.filterText = label;
   item.sortText = "0_" + label;
   item.keepWhitespace = true;
   item.insertText = insertText instanceof vscode.SnippetString
@@ -235,7 +269,32 @@ function keyCompletions(document, position, prefix) {
 }
 
 function isActionContext(document, lineNumber) {
-  return syntaxStack(document, lineNumber).some((item) => ACTION_CONTAINER_KEYS.has(item.key));
+  const stack = syntaxStack(document, lineNumber);
+  if (stack[0]?.key === "data") return false;
+  return stack.some((item) => ACTION_CONTAINER_KEYS.has(item.key));
+}
+
+function listItemCompletions(document, position, prefix) {
+  const stack = syntaxStack(document, position.line);
+  const root = stack[0]?.key;
+  let candidates = [];
+  if (root === "data") {
+    candidates = DATA_LIST_ITEMS;
+  } else if (root === "pages" && stack.some((item) => item.key === "children")) {
+    candidates = LAYOUT_LIST_ITEMS;
+  } else if (stack.some((item) => item.key === "children")) {
+    candidates = LAYOUT_LIST_ITEMS;
+  } else if (root === "pages") {
+    candidates = PAGE_LIST_ITEMS;
+  }
+  return candidates
+    .filter((item) => item.label.startsWith(prefix))
+    .map((item) => completion(
+      item.label,
+      vscode.CompletionItemKind.Property,
+      item.detail,
+      indentActionSnippet(document, position, item.body)
+    ));
 }
 
 function indentActionSnippet(document, position, body) {
@@ -291,6 +350,11 @@ function provideCompletions(document, position) {
       name,
       ROOT_HELP[name.split(".")[0]]?.[0] || "Page TUI 变量路径"
     ));
+  }
+
+  if (!isActionContext(document, position.line) && /^\s*-\s*[A-Za-z0-9_-]*$/.test(before)) {
+    const items = listItemCompletions(document, position, prefix);
+    if (items.length) return items;
   }
 
   if (isActionContext(document, position.line) && /^\s*-\s*[A-Za-z0-9_-]*$/.test(before)) {
@@ -570,12 +634,7 @@ function activate(context) {
   statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
   context.subscriptions.push(diagnostics, statusBar);
 
-  const selector = [
-    { language: "page-tui-yaml", scheme: "file" },
-    { language: "page-tui-yaml", scheme: "untitled" },
-    { language: "yaml", scheme: "file" },
-    { language: "yaml", scheme: "untitled" }
-  ];
+  const selector = DOCUMENT_SELECTOR;
   context.subscriptions.push(
     vscode.languages.registerCompletionItemProvider(
       selector,

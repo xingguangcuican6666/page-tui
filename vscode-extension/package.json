@@ -2,7 +2,7 @@
   "name": "page-tui-vscode",
   "displayName": "Page TUI",
   "description": "为 Page TUI YAML 页面提供补全、悬停说明、校验、实时预览、模板和运行命令。",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "publisher": "xingguangcuican",
   "license": "MIT",
   "main": "./extension.js",
@@ -44,6 +44,16 @@
     "yaml": "^2.8.1"
   },
   "contributes": {
+    "configurationDefaults": {
+      "[page-tui-yaml]": {
+        "editor.quickSuggestions": {
+          "other": true,
+          "comments": false,
+          "strings": true
+        },
+        "editor.suggest.snippetsPreventQuickSuggestions": false
+      }
+    },
     "languages": [
       {
         "id": "page-tui-yaml",

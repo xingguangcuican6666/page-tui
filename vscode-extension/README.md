@@ -49,7 +49,7 @@ npx @vscode/vsce package
 生成文件类似：
 
 ~~~text
-page-tui-vscode-0.1.0.vsix
+page-tui-vscode-0.1.3.vsix
 ~~~
 
 在 VS Code 中执行：
@@ -163,6 +163,14 @@ refresh
 ~~~
 
 选中补全项后，扩展会插入带有 tab stop 的多行模板。
+
+`-` 的补全会根据根节点切换：
+
+- `data` 下显示 `object` 和 `value` 数据项模板。
+- `pages` 的 `layout.children` 下显示 `text`、`input`、`column`、`row`、`panel`、`list` 等组件节点模板。
+- `keys`、`on`、`then`、`else` 下才显示 `set`、`push`、`if` 等动作模板。
+
+因此在 `data` 列表里不会误弹动作。`data` 的字段名是用户自定义的，扩展不会擅自猜测 `name`、`title` 等字段；编辑器中灰色的字段文字仍可能来自 AI 内联建议。
 
 ### 第三步：使用变量补全
 

@@ -82,6 +82,13 @@ test("root fields are suggested while typing data", () => {
   assert.ok(data);
   assert.equal(data.insertText.value, "data:");
   assert.equal(data.detail, "Page TUI · Page TUI manifest");
+  assert.equal(data.filterText, "data");
+});
+
+test("Page TUI keeps automatic quick suggestions enabled", () => {
+  const defaults = packageJson.contributes.configurationDefaults["[page-tui-yaml]"];
+  assert.equal(defaults["editor.quickSuggestions"].other, true);
+  assert.equal(defaults["editor.suggest.snippetsPreventQuickSuggestions"], false);
 });
 
 test("page fields are suggested on an empty page line", () => {
@@ -131,6 +138,38 @@ test("action snippets are not suggested for arbitrary data lists", () => {
   const items = provideCompletions(document, { line: 2, character: 6 });
   assert.equal(items.some((item) => item.label === "append"), false);
   assert.equal(items.some((item) => item.label === "set"), false);
+});
+
+test("data lists offer data item templates", () => {
+  const document = documentFrom([
+    "data:",
+    "  items:",
+    "    - "
+  ], "page-tui-yaml");
+  const items = provideCompletions(document, { line: 2, character: 6 });
+  const object = items.find((item) => item.label === "object");
+  const value = items.find((item) => item.label === "value");
+  assert.ok(object);
+  assert.ok(value);
+  assert.equal(object.detail, "Page TUI · 数据对象项");
+  assert.match(object.insertText.value, /key/);
+});
+
+test("layout children offer component node templates", () => {
+  const document = documentFrom([
+    "pages:",
+    "  home:",
+    "    layout:",
+    "      children:",
+    "        - "
+  ], "page-tui-yaml");
+  const items = provideCompletions(document, { line: 4, character: 10 });
+  const text = items.find((item) => item.label === "text");
+  const column = items.find((item) => item.label === "column");
+  assert.ok(text);
+  assert.ok(column);
+  assert.equal(items.some((item) => item.label === "set"), false);
+  assert.match(text.insertText.value, /type: text/);
 });
 
 test("data fields named like actions are not treated as action objects", () => {
