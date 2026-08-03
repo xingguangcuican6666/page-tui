@@ -30,12 +30,18 @@ vscode-extension/
 有扩展后：
 
 - 输入 type: 可以补全组件。
+- 在 pages 下的页面空行可以补全 title、state、layout、keys 和 on。
+- 在 layout、组件和 action 下可以补全对应字段。
 - 输入 - 可以补全 action。
 - 输入 bind: 可以补全变量路径。
 - 输入 page: 可以补全页面名称。
 - 鼠标悬停会显示中文解释。
 - 错误会显示在 Problems 面板。
 - 可以直接生成完整初学者页面。
+
+扩展会识别 `app.yaml`、`app.yml`、`ui/pages/**/*.yaml`、`ui/pages/**/*.yml` 和 `*.page.yaml`。这些文件即使右下角显示普通的 `YAML`，也会启用 Page TUI 的补全和悬停；其他普通 YAML 文件不会被 Page TUI 诊断。如果编辑的是不在这些路径中的独立页面，可以运行“Page TUI: 将当前文件设为 Page TUI YAML”。
+
+按 Ctrl+Space 打开的普通补全菜单中，带有 `Page TUI ·` 的项目来自本扩展。编辑器里灰色、斜体、尚未写入文件的文字属于 VS Code 的内联建议，通常来自 Copilot 或其他 AI 扩展，不是 Page TUI 补全。
 
 ## 2. 安装方式
 

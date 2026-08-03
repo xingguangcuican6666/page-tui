@@ -47,16 +47,48 @@ const ROOT_HELP = {
 const COMPONENTS = ["text", "input", "column", "row", "panel", "list", "divider", "spacer"];
 const KEY_NAMES = ["up", "down", "left", "right", "enter", "escape", "space", "backspace", "character"];
 const STYLES = ["title", "primary", "selected", "muted", "border", "success", "warning", "danger", "input"];
+const PAGE_FIELDS = ["title", "state", "layout", "keys", "on"];
+const LAYOUT_FIELDS = ["type", "children", "child", "value", "bind", "template", "visible", "style", "padding", "gap", "flex"];
+const COMPONENT_FIELDS = {
+  text: ["value", "bind", "template", "style", "visible"],
+  input: ["bind", "placeholder", "character", "style", "visible"],
+  column: ["children", "gap", "padding", "style", "visible"],
+  row: ["children", "gap", "padding", "style", "visible"],
+  panel: ["title", "child", "children", "style", "flex", "visible"],
+  list: ["items", "selected", "label", "description", "itemStyle", "selectedStyle", "visible"],
+  divider: ["character", "style", "visible"],
+  spacer: ["height", "lines", "visible"]
+};
+const ACTION_FIELDS = {
+  set: ["path", "value", "then"],
+  move: ["path", "by", "list", "within"],
+  toggle: ["path", "list", "index", "field"],
+  remove: ["list", "index", "within"],
+  append: ["path", "list", "value"],
+  backspace: ["path"],
+  push: ["page", "route", "params"],
+  go: ["page", "route", "params"],
+  replace: ["page", "route", "params"],
+  reset: ["page", "route", "params"],
+  pop: ["result"],
+  quit: ["code"],
+  call: ["with", "args"],
+  if: ["condition", "then", "else"]
+};
 
 let diagnostics;
 let statusBar;
 
 function isPageTuiDocument(document) {
   if (!document) return false;
-  return document.languageId === "page-tui-yaml"
-    || document.fileName.endsWith(".page.yaml")
+  if (document.languageId === "page-tui-yaml") return true;
+  if (document.languageId !== "yaml") return false;
+  if (document.fileName.endsWith(".page.yaml")
     || document.fileName.endsWith(".page.yml")
-    || /(^|[\\/])app\.ya?ml$/.test(document.fileName);
+    || /(^|[\\/])app\.ya?ml$/.test(document.fileName)
+    || /(^|[\\/])ui[\\/]pages[\\/].*\.ya?ml$/.test(document.fileName)) return true;
+  const text = typeof document.getText === "function" ? document.getText() : "";
+  return /^\s*(?:initial|pages):\s*$/m.test(text);
 }
 
 function markdown(text) {
@@ -67,7 +99,8 @@ function markdown(text) {
 
 function completion(label, kind, detail, insertText, documentation) {
   const item = new vscode.CompletionItem(label, kind);
-  item.detail = detail;
+  item.detail = "Page TUI · " + detail;
+  item.sortText = "0_" + label;
   item.insertText = insertText instanceof vscode.SnippetString
     ? insertText
     : new vscode.SnippetString(insertText || label);
@@ -134,7 +167,47 @@ function pageRoutes(document) {
   return [];
 }
 
+function syntaxStack(document, lineNumber) {
+  const stack = [];
+  for (let index = 0; index < lineNumber; index += 1) {
+    const line = document.lineAt(index).text;
+    const match = line.match(/^(\s*)(?:-\s*)?([A-Za-z0-9_-]+):(?:\s*(.*))?$/);
+    if (!match) continue;
+    const indent = match[1].length;
+    while (stack.length && stack[stack.length - 1].indent >= indent) stack.pop();
+    stack.push({ key: match[2], value: (match[3] || "").trim(), indent });
+  }
+  return stack;
+}
+
+function structuralFields(document, lineNumber) {
+  const line = document.lineAt(lineNumber).text;
+  if (!/^\s*[A-Za-z0-9_-]*\s*$/.test(line)) return [];
+  const stack = syntaxStack(document, lineNumber);
+  const keys = stack.map((item) => item.key);
+  if (keys.includes("keys")) return [];
+  const type = [...stack].reverse().find((item) => item.key === "type")?.value;
+  if (type && COMPONENT_FIELDS[type]) return COMPONENT_FIELDS[type];
+  const action = [...stack].reverse().find((item) => ACTION_FIELDS[item.key]);
+  if (action) return ACTION_FIELDS[action.key];
+  if (keys.includes("layout")) return LAYOUT_FIELDS;
+  if (keys.includes("pages") && stack.some((item) => item.indent > 0)) return PAGE_FIELDS;
+  if (keys.includes("children")) return ["type"];
+  if (keys.length === 0) return ["initial", "data", "pages"];
+  return [];
+}
+
+function fieldCompletions(fields) {
+  return fields.map((name) => completion(
+    name,
+    vscode.CompletionItemKind.Property,
+    "Page TUI 字段",
+    name + ":"
+  ));
+}
+
 function provideCompletions(document, position) {
+  if (!isPageTuiDocument(document)) return [];
   const before = lineBefore(document, position);
   const prefixMatch = before.match(/[A-Za-z0-9_.-]*$/);
   const prefix = prefixMatch ? prefixMatch[0] : "";
@@ -203,6 +276,9 @@ function provideCompletions(document, position) {
     ));
   }
 
+  const fields = structuralFields(document, position.line);
+  if (fields.length) return fieldCompletions(fields);
+
   if (position.line === 0 && /^\s*[A-Za-z0-9_-]*$/.test(before)) {
     return ["initial:", "data:", "pages:"].map((name) => completion(
       name,
@@ -219,6 +295,7 @@ function provideCompletions(document, position) {
 }
 
 function provideHover(document, position) {
+  if (!isPageTuiDocument(document)) return undefined;
   const range = document.getWordRangeAtPosition(position, /[A-Za-z0-9_.-]+/);
   const word = range ? document.getText(range) : "";
   const root = word.split(".")[0];
@@ -375,7 +452,9 @@ function activate(context) {
 
   const selector = [
     { language: "page-tui-yaml", scheme: "file" },
-    { language: "page-tui-yaml", scheme: "untitled" }
+    { language: "page-tui-yaml", scheme: "untitled" },
+    { language: "yaml", scheme: "file" },
+    { language: "yaml", scheme: "untitled" }
   ];
   context.subscriptions.push(
     vscode.languages.registerCompletionItemProvider(

@@ -72,7 +72,9 @@ Extensions: Install from VSIX...
 - ui/pages/**/*.yaml
 - ui/pages/**/*.yml
 
-如果某个文件没有自动识别，打开命令面板，运行：
+这些文件即使右下角显示普通的 `YAML`，也会触发 Page TUI 的补全和悬停说明。扩展只会在这些约定路径中增加 Page TUI 能力，不会给项目里的其他 YAML 文件添加 Page TUI 诊断。
+
+如果某个文件没有自动识别，或者你正在编辑一个不在约定路径中的独立页面，打开命令面板，运行：
 
 ~~~text
 Page TUI: 将当前文件设为 Page TUI YAML
@@ -121,6 +123,26 @@ list
 divider
 spacer
 ~~~
+
+在页面字段的空行中输入空格并按 Ctrl+Space，也可以看到：
+
+~~~text
+title
+state
+layout
+keys
+on
+~~~
+
+例如：
+
+~~~yaml
+pages:
+  home:
+    # 在这一行按 Ctrl+Space
+~~~
+
+补全菜单中带有 `Page TUI ·` 的项目来自本扩展。编辑器里灰色、斜体、还没有真正写入文件的文字是 VS Code 的内联建议，通常来自 Copilot 或其他 AI 扩展；它不是 Page TUI 补全。需要确定地打开本扩展菜单时，请按 Ctrl+Space。
 
 在 keys 的 action 列表中输入 - ，可以看到：
 

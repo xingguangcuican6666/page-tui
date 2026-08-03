@@ -22,6 +22,7 @@
   ],
   "activationEvents": [
     "onLanguage:page-tui-yaml",
+    "onLanguage:yaml",
     "onCommand:pageTui.createStarter",
     "onCommand:pageTui.insertTemplate",
     "onCommand:pageTui.validate",
@@ -35,7 +36,7 @@
     "directory": "vscode-extension"
   },
   "scripts": {
-    "test": "node test/validation.test.js",
+    "test": "node --test test/*.test.js",
     "package": "npx @vscode/vsce package"
   },
   "dependencies": {
