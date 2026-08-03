@@ -50,6 +50,7 @@ const COMPONENTS = ["text", "input", "column", "row", "panel", "list", "divider"
 const KEY_NAMES = ["up", "down", "left", "right", "enter", "escape", "space", "backspace", "character"];
 const STYLES = ["title", "primary", "selected", "muted", "border", "success", "warning", "danger", "input"];
 const PAGE_FIELDS = ["title", "state", "layout", "keys", "on"];
+const PAGE_ROOT_FIELDS = ["name", "title", "state", "layout", "keys", "on"];
 const ROOT_FIELDS = ["initial", "data", "pages"];
 const LAYOUT_FIELDS = ["type", "children", "child", "value", "bind", "template", "visible", "style", "padding", "gap", "flex"];
 const KEY_TRIGGER_CHARACTERS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
@@ -134,6 +135,17 @@ function isPageTuiDocument(document) {
     || /(^|[\\/])ui[\\/]pages[\\/].*\.ya?ml$/.test(document.fileName)) return true;
   const text = typeof document.getText === "function" ? document.getText() : "";
   return /^\s*(?:initial|pages):\s*$/m.test(text);
+}
+
+function isStandalonePageDocument(document) {
+  const fileName = document?.fileName || "";
+  if (/\.page\.ya?ml$/i.test(fileName)) return true;
+  if (/(^|[\\/])(?:ui[\\/])?pages[\\/][^\\/]+\.ya?ml$/i.test(fileName)) return true;
+  if (/(^|[\\/])(?:app|page-tui)\.ya?ml$/i.test(fileName)) return false;
+  const text = typeof document?.getText === "function" ? document.getText() : "";
+  const hasPageRoot = /^\s*(?:name|title|state|layout|keys|on):/m.test(text);
+  const hasManifestRoot = /^\s*(?:initial|data|pages):/m.test(text);
+  return hasPageRoot && !hasManifestRoot;
 }
 
 function markdown(text) {
@@ -224,7 +236,9 @@ function structuralFields(document, lineNumber) {
   if (keys.includes("layout")) return LAYOUT_FIELDS;
   if (keys.includes("pages") && stack.some((item) => item.indent > 0)) return PAGE_FIELDS;
   if (keys.includes("children")) return ["type"];
-  if (keys.length === 0) return ROOT_FIELDS;
+  if (keys.length === 0) {
+    return isStandalonePageDocument(document) ? PAGE_ROOT_FIELDS : ROOT_FIELDS;
+  }
   return [];
 }
 
@@ -241,7 +255,8 @@ function rootFieldCompletions(document, position) {
   const before = lineBefore(document, position);
   if (!/^\s*[A-Za-z0-9_-]*$/.test(before)) return [];
   if (syntaxStack(document, position.line).length > 0) return [];
-  return ROOT_FIELDS.map((name) => completion(
+  const fields = isStandalonePageDocument(document) ? PAGE_ROOT_FIELDS : ROOT_FIELDS;
+  return fields.map((name) => completion(
     name,
     vscode.CompletionItemKind.Property,
     "Page TUI manifest",
@@ -278,7 +293,7 @@ function listItemCompletions(document, position, prefix) {
   const stack = syntaxStack(document, position.line);
   const root = stack[0]?.key;
   let candidates = [];
-  if (root === "data") {
+  if (root === "data" && stack.length > 1) {
     candidates = DATA_LIST_ITEMS;
   } else if (root === "pages" && stack.some((item) => item.key === "children")) {
     candidates = LAYOUT_LIST_ITEMS;

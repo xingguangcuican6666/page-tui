@@ -42,6 +42,13 @@ vscode-extension/
 
 扩展会识别 `app.yaml`、`app.yml`、`ui/pages/**/*.yaml`、`ui/pages/**/*.yml` 和 `*.page.yaml`。这些文件即使右下角显示普通的 `YAML`，也会启用 Page TUI 的补全和悬停；其他普通 YAML 文件不会被 Page TUI 诊断。如果编辑的是不在这些路径中的独立页面，可以运行“Page TUI: 将当前文件设为 Page TUI YAML”。
 
+根节点不是所有文件都相同：
+
+- `app.yaml` 是应用 manifest，根键是 `initial`、`data`、`pages`。
+- `ui/pages/home.yaml` 或 `*.page.yaml` 是独立页面，根键是 `name`、`title`、`state`、`layout`、`keys`、`on`。
+
+因此在 `app.yaml` 根部输入 `ke` 没有补全是正确的；按键应写在 `pages.<page>.keys` 下。若希望 `keys` 出现在根部，请新建独立页面文件。`data` 本身是对象，数组应写成 `data.items`、`data.tasks` 等字段的值。
+
 按 Ctrl+Space 打开的普通补全菜单中，带有 `Page TUI ·` 的项目来自本扩展。编辑器里灰色、斜体、尚未写入文件的文字属于 VS Code 的内联建议，通常来自 Copilot 或其他 AI 扩展，不是 Page TUI 补全。
 
 ## 2. 安装方式

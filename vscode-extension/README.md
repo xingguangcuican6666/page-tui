@@ -49,7 +49,7 @@ npx @vscode/vsce package
 生成文件类似：
 
 ~~~text
-page-tui-vscode-0.1.3.vsix
+page-tui-vscode-0.1.4.vsix
 ~~~
 
 在 VS Code 中执行：
@@ -82,6 +82,13 @@ Page TUI: 将当前文件设为 Page TUI YAML
 ~~~
 
 也可以点击编辑器右下角的语言模式，选择 Page TUI YAML。
+
+根节点会根据文件类型区分：
+
+- `app.yaml` 是应用 manifest，根键是 `initial`、`data`、`pages`。
+- `ui/pages/home.yaml`、`*.page.yaml` 是独立页面，根键是 `name`、`title`、`state`、`layout`、`keys`、`on`。
+
+所以在 `app.yaml` 根部输入 `ke` 不会出现 `keys`；应在 `pages.home.keys` 下写按键，或把页面拆到独立页面文件。`data` 本身是对象，列表要放在 `data.items`、`data.tasks` 等字段下。
 
 ## 4. 最常用的工作流
 

@@ -50,9 +50,9 @@ Module._load = function load(request, parent, isMain) {
 const { provideCompletions } = require("../extension");
 Module._load = originalLoad;
 
-function documentFrom(lines, languageId = "yaml") {
+function documentFrom(lines, languageId = "yaml", fileName = "/workspace/ui/app.yaml") {
   return {
-    fileName: "/workspace/ui/app.yaml",
+    fileName,
     languageId,
     lineAt(line) {
       return { text: lines[line] };
@@ -83,6 +83,20 @@ test("root fields are suggested while typing data", () => {
   assert.equal(data.insertText.value, "data:");
   assert.equal(data.detail, "Page TUI · Page TUI manifest");
   assert.equal(data.filterText, "data");
+});
+
+test("manifest root does not suggest page-only keys", () => {
+  const document = documentFrom(["ke"], "page-tui-yaml", "/workspace/ui/app.yaml");
+  const items = provideCompletions(document, { line: 0, character: 2 });
+  assert.equal(items.some((item) => item.label === "keys"), false);
+});
+
+test("standalone page files suggest page root keys", () => {
+  const document = documentFrom(["ke"], "page-tui-yaml", "/workspace/ui/pages/home.yaml");
+  const items = provideCompletions(document, { line: 0, character: 2 });
+  const keys = items.find((item) => item.label === "keys");
+  assert.ok(keys);
+  assert.equal(keys.insertText.value, "keys:");
 });
 
 test("Page TUI keeps automatic quick suggestions enabled", () => {
@@ -153,6 +167,16 @@ test("data lists offer data item templates", () => {
   assert.ok(value);
   assert.equal(object.detail, "Page TUI · 数据对象项");
   assert.match(object.insertText.value, /key/);
+});
+
+test("data itself remains an object rather than a list", () => {
+  const document = documentFrom([
+    "data:",
+    "  - "
+  ], "page-tui-yaml");
+  const items = provideCompletions(document, { line: 1, character: 4 });
+  assert.equal(items.some((item) => item.label === "object"), false);
+  assert.equal(items.some((item) => item.label === "value"), false);
 });
 
 test("layout children offer component node templates", () => {
