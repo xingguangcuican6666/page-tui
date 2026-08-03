@@ -348,6 +348,9 @@ test("样式、条件和 if 分支提供结构化编辑控件", () => {
     ["pages", "home", "keys", "enter", 0]
   ));
   assert.match(actionHtml, /条件类型与参数/);
+  assert.match(actionHtml, /data-condition-operator/);
+  assert.match(actionHtml, /syncConditionEditorState/);
+  assert.match(actionHtml, /requestAnimationFrame/);
   assert.match(actionHtml, /renderActionBranch/);
   assert.match(actionHtml, /data-action-branch="' \+ esc\(field\)/);
   assert.match(actionHtml, /data-action-branch-type/);

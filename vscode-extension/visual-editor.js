@@ -865,7 +865,7 @@ function conditionOperandValues(value) {
 }
 function renderConditionOperand(label, value, name) {
   const info = conditionOperandInfo(value);
-  return '<div class="condition-operand"><label class="condition-operand-label">' + esc(label) + '</label><div class="condition-operand-control"><select data-condition-operand-mode="' + esc(name) + '"><option value="path" ' + (info.mode === "path" ? 'selected' : '') + '>变量路径</option><option value="value" ' + (info.mode === "value" ? 'selected' : '') + '>固定值</option></select><input list="variable-paths" data-condition-operand="' + esc(name) + '" value="' + esc(info.text) + '" placeholder="输入变量路径或固定值"></div></div>';
+  return '<div class="condition-operand"><label class="condition-operand-label">' + esc(label) + '</label><div class="condition-operand-control"><select data-condition-operand-mode="' + esc(name) + '" data-condition-operand-mode-value="' + esc(info.mode) + '"><option value="path" ' + (info.mode === "path" ? 'selected' : '') + '>变量路径</option><option value="value" ' + (info.mode === "value" ? 'selected' : '') + '>固定值</option></select><input list="variable-paths" data-condition-operand="' + esc(name) + '" data-condition-operand-value="' + esc(info.text) + '" value="' + esc(info.text) + '" placeholder="输入变量路径或固定值"></div></div>';
 }
 function readConditionOperand(editor, name) {
   const input = editor.querySelector('[data-condition-operand="' + name + '"]');
@@ -879,9 +879,11 @@ function renderConditionNode(value, root = false, rootAttributes = "") {
   const object = value && typeof value === "object" && !Array.isArray(value) ? value : {};
   let body = "";
   if (op === "direct") {
-    body = '<input list="variable-paths" data-condition-reference value="' + esc(typeof value === "string" ? value : "") + '" placeholder="变量路径，例如 state.notice">';
+    const reference = typeof value === "string" ? value : "";
+    body = '<input list="variable-paths" data-condition-reference data-condition-reference-value="' + esc(reference) + '" value="' + esc(reference) + '" placeholder="变量路径，例如 state.notice">';
   } else if (["notEmpty", "empty", "truthy"].includes(op)) {
-    body = '<input list="variable-paths" data-condition-reference value="' + esc(pretty(object[op])) + '" placeholder="变量路径，例如 state.notice">';
+    const reference = pretty(object[op]);
+    body = '<input list="variable-paths" data-condition-reference data-condition-reference-value="' + esc(reference) + '" value="' + esc(reference) + '" placeholder="变量路径，例如 state.notice">';
   } else if (["equals", "notEquals"].includes(op)) {
     const values = conditionOperandValues(object[op]);
     body = renderConditionOperand("左值", values[0], "left") + renderConditionOperand("右值", values[1], "right");
@@ -891,9 +893,10 @@ function renderConditionNode(value, root = false, rootAttributes = "") {
   } else if (op === "not") {
     body = '<div data-condition-not>' + renderConditionNode(object.not === undefined ? defaultCondition("notEmpty") : object.not) + '</div>';
   } else {
-    body = '<textarea data-condition-custom placeholder="输入条件 JSON，例如 {&quot;notEmpty&quot;:&quot;state.notice&quot;}">' + esc(pretty(value)) + '</textarea><div class="subtle">高级条件仍可直接填写 YAML 对应的 JSON。</div>';
+    const custom = pretty(value);
+    body = '<textarea data-condition-custom data-condition-custom-value="' + esc(custom) + '" placeholder="输入条件 JSON，例如 {&quot;notEmpty&quot;:&quot;state.notice&quot;}">' + esc(custom) + '</textarea><div class="subtle">高级条件仍可直接填写 YAML 对应的 JSON。</div>';
   }
-  return '<div class="condition-editor" data-condition-editor' + (root ? ' data-condition-root' + rootAttributes : '') + '><div class="condition-toolbar"><select data-condition-op>' + conditionTypeOptions(op) + '</select></div>' + body + '</div>';
+  return '<div class="condition-editor" data-condition-editor data-condition-operator="' + esc(op) + '"' + (root ? ' data-condition-root' + rootAttributes : '') + '><div class="condition-toolbar"><select data-condition-op>' + conditionTypeOptions(op) + '</select></div>' + body + '</div>';
 }
 function renderConditionEditor(value, options = {}) {
   let attributes = ' data-condition-scope="' + esc(options.scope || "field") + '"';
@@ -1003,11 +1006,39 @@ function conditionRootAttributes(editor) {
   if (editor.dataset.styleConditionKey) attributes += ' data-style-condition-key="' + esc(editor.dataset.styleConditionKey) + '"';
   return attributes;
 }
+function syncConditionEditorState(container = document) {
+  const editors = container.matches?.("[data-condition-editor]")
+    ? [container, ...container.querySelectorAll("[data-condition-editor]")]
+    : Array.from(container.querySelectorAll("[data-condition-editor]"));
+  editors.forEach((editor) => {
+    const operator = editor.querySelector(".condition-toolbar [data-condition-op]");
+    if (operator && editor.dataset.conditionOperator) operator.value = editor.dataset.conditionOperator;
+    editor.querySelectorAll("[data-condition-reference]").forEach((input) => {
+      if (input.dataset.conditionReferenceValue !== undefined) input.value = input.dataset.conditionReferenceValue;
+    });
+    editor.querySelectorAll("[data-condition-operand]").forEach((input) => {
+      if (input.dataset.conditionOperandValue !== undefined) input.value = input.dataset.conditionOperandValue;
+      const mode = Array.from(editor.querySelectorAll("[data-condition-operand-mode]"))
+        .find((item) => item.dataset.conditionOperandMode === input.dataset.conditionOperand);
+      if (mode?.dataset.conditionOperandModeValue !== undefined) mode.value = mode.dataset.conditionOperandModeValue;
+    });
+    editor.querySelectorAll("[data-condition-custom]").forEach((input) => {
+      if (input.dataset.conditionCustomValue !== undefined) input.value = input.dataset.conditionCustomValue;
+    });
+  });
+}
+function scheduleConditionEditorSync(container = document) {
+  syncConditionEditorState(container);
+  if (typeof window.requestAnimationFrame === "function") {
+    window.requestAnimationFrame(() => syncConditionEditorState(container));
+  }
+}
 function replaceConditionNode(editor, value) {
   const holder = document.createElement("div");
   holder.innerHTML = renderConditionNode(value, editor.hasAttribute("data-condition-root"), conditionRootAttributes(editor));
   const replacement = holder.firstElementChild;
   editor.replaceWith(replacement);
+  scheduleConditionEditorSync(replacement);
   return replacement;
 }
 function commitConditionEditor(editor, explicitValue) {
@@ -1344,7 +1375,7 @@ function refreshActionEvents() {
 function renderBanner() {
   document.getElementById("banner").innerHTML = model.ok ? '' : '<div class="banner">无法打开可视化编辑器：' + esc(model.error) + '。请先修复 YAML，或打开源码编辑器。</div>';
 }
-function render() { hideHoverPreview(); renderBanner(); renderPages(); renderData(); renderTree(); bindHoverPreviews(); renderComponentTools(); renderInspector(); renderActions(); renderDatalists(); refreshActionEvents(); }
+function render() { hideHoverPreview(); renderBanner(); renderPages(); renderData(); renderTree(); bindHoverPreviews(); renderComponentTools(); renderInspector(); renderActions(); renderDatalists(); refreshActionEvents(); scheduleConditionEditorSync(); }
 
 window.addEventListener("scroll", hideHoverPreview, true);
 window.addEventListener("resize", hideHoverPreview);
