@@ -232,11 +232,12 @@ Page TUI: 打开实时预览
 - 读取当前打开的 `app.yaml` 或独立 Page TUI YAML 文件。
 - 编辑文件后自动刷新，不需要手动保存。
 - 用页面下拉框切换 `pages` 中的页面。
+- 点击 list 项目、输入文字，或使用方向键、Enter、Escape 和普通字符测试页面交互。
 - 展示 text、input、column、row、panel、list、divider 和 spacer。
 - 计算 `data`、页面 `state`、`params`、`item` 和常用模板函数。
 - YAML 暂时写错时显示错误，修正后自动恢复。
 
-这是布局预览，不会执行 keys 动作、Node.js service、网络请求或数据库操作。需要验证真实交互时，使用“Page TUI: 运行当前项目”。
+预览会在内存中执行安全的内置 keys 动作，例如 set、move、toggle、append、push、pop 和 if；不会执行 call、refresh、Node.js service、网络请求或数据库操作。需要验证真实运行环境时，使用“Page TUI: 运行当前项目”。
 
 ## 5. 校验功能
 
@@ -340,7 +341,7 @@ vscode-extension/
 
 ## 10. 当前边界
 
-这个扩展不会执行 YAML 中的任意 JavaScript，也不会替代 Page TUI runtime。实时预览只负责绘制静态布局，不会模拟真实按键动作或执行 service。
+这个扩展不会执行 YAML 中的任意 JavaScript，也不会替代 Page TUI runtime。实时预览只在内存中模拟有限的页面状态和内置动作，不会执行外部 service。
 
 当前不会自动知道：
 

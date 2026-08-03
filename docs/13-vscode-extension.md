@@ -261,13 +261,14 @@ Page TUI: 打开实时预览
 
 - 页面布局改变后，预览约 120 毫秒内更新。
 - `pages` 中的页面可以用顶部下拉框切换。
+- 可以点击 list 项目、输入文字，或使用方向键、Enter、Escape 和普通字符测试交互。
 - `data`、页面 `state`、`params`、`item` 和模板函数会计算出示例结果。
 - text、input、column、row、panel、list、divider 和 spacer 都有对应的预览样式。
 - YAML 正在输入、暂时无法解析时，面板显示错误；修正后自动恢复。
 
 例如打开 `examples/easy-tasks/app.yaml` 后，运行命令即可看到 `home`、`detail` 和 `create` 三个页面。选择 `detail` 时，由于没有真实运行时传入 `params.task`，依赖它的文本可能为空，这是正常的静态预览结果。
 
-预览只执行安全的 YAML 解析、变量读取和模板计算，不会执行 keys 动作、Node.js service、网络请求或数据库操作。要验证真实交互，请继续使用“Page TUI: 运行当前项目”。
+预览会在内存中执行安全的内置 keys 动作，例如 set、move、toggle、append、push、pop 和 if；不会执行 call、refresh、Node.js service、网络请求或数据库操作。要验证真实运行环境，请继续使用“Page TUI: 运行当前项目”。
 
 ## 10. 推荐工作习惯
 
@@ -323,7 +324,7 @@ Page TUI runtime 负责运行体验：
 
 - 自动推断数据库返回类型。
 - 检查自定义 service 名称是否真的注册。
-- 执行真实 runtime 的按键和 service 模拟。
+- 执行完整 runtime 的环境、service 和副作用模拟。
 - 自动生成 Node.js service。
 - 替代完整 YAML 语言服务器。
 

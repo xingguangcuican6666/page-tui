@@ -268,9 +268,9 @@ function renderNode(node, context) {
       const value = node.bind !== undefined
         ? String(readPath(node.bind, context) ?? "")
         : renderTextSpec(node.value, context);
-      const display = value || node.placeholder || "";
+      const inputPath = typeof node.bind === "string" ? ` data-preview-input="${escapeHtml(node.bind)}"` : "";
       const className = value ? "input-value" : "input-placeholder";
-      return `<div class="${componentClass(type, node, context)}"${styleAttribute(componentStyle(node))}><span class="${className}">${escapeHtml(display)}</span><span class="input-cursor">▌</span></div>`;
+      return `<input type="text" class="${componentClass(type, node, context)} ${className}"${styleAttribute(componentStyle(node))}${inputPath} value="${escapeHtml(value)}" placeholder="${escapeHtml(node.placeholder || "")}" spellcheck="false">`;
     }
     case "divider": {
       const character = String(node.character || "─").repeat(80).slice(0, 80);
@@ -306,7 +306,8 @@ function renderNode(node, context) {
         const itemStyle = resolveStyle(item.style || node.itemStyle, itemContext);
         const selectedClass = index === selected ? ` is-selected theme-${safeClass(node.selectedStyle || "selected")}` : "";
         const itemClass = `list-item${selectedClass}${itemStyle ? ` theme-${safeClass(itemStyle)}` : ""}`;
-        return `<div class="${itemClass}"><span class="list-marker">${index === selected ? "❯" : " "}</span><span class="list-content"><span>${escapeHtml(label)}</span>${description ? `<small>${escapeHtml(description)}</small>` : ""}</span></div>`;
+        const listPath = typeof node.selected === "string" ? node.selected : "";
+        return `<div data-preview-list-item="${index}" data-preview-list-path="${escapeHtml(listPath)}" class="${itemClass}"><span class="list-marker">${index === selected ? "❯" : " "}</span><span class="list-content"><span>${escapeHtml(label)}</span>${description ? `<small>${escapeHtml(description)}</small>` : ""}</span></div>`;
       }).join("");
       return `<div class="${componentClass(type, node, context)}"${styleAttribute(componentStyle(node))}>${body}</div>`;
     }
@@ -330,19 +331,53 @@ function normalizeDocument(document) {
   return { data: document.data || {}, pages: {}, initial: undefined };
 }
 
+function cloneValue(value) {
+  if (Array.isArray(value)) return value.map(cloneValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, cloneValue(item)]));
+  }
+  return value;
+}
+
+function writePath(path, value, context) {
+  const parts = splitPath(path);
+  const rootName = parts.shift();
+  const roots = {
+    data: context.data,
+    state: context.state,
+    params: context.params,
+    page: context.params
+  };
+  const root = roots[rootName];
+  if (!root || !parts.length) return false;
+  let target = root;
+  for (const part of parts.slice(0, -1)) {
+    if (!target[part] || typeof target[part] !== "object") target[part] = {};
+    target = target[part];
+  }
+  target[parts.at(-1)] = value;
+  return true;
+}
+
+function actionEntry(action) {
+  if (typeof action === "string") return { name: action, config: {} };
+  if (!action || typeof action !== "object") return undefined;
+  if (action.do) return { name: action.do, config: action };
+  const names = ["set", "move", "toggle", "remove", "append", "backspace", "push", "go", "replace", "reset", "pop", "quit", "call", "refresh", "notify", "if"];
+  const name = names.find((candidate) => Object.hasOwn(action, candidate));
+  return name ? { name, config: action[name] } : undefined;
+}
+
+function actionList(actions) {
+  if (!actions) return [];
+  return Array.isArray(actions) ? actions : [actions];
+}
+
 function errorBody(message) {
   return `<div class="preview-error-card"><strong>预览暂时无法更新</strong><pre>${escapeHtml(message)}</pre><p>修正 YAML 后，预览会自动恢复。</p></div>`;
 }
 
-function renderPreview(source, requestedPage) {
-  let document;
-  try {
-    document = YAML.parse(source) || {};
-  } catch (error) {
-    const message = `YAML 解析失败：${error.message}`;
-    return { pageNames: [], pageName: "", body: errorBody(message), error: message };
-  }
-
+function renderDocument(document, requestedPage, overrides = {}) {
   const normalized = normalizeDocument(document);
   const pageNames = Object.keys(normalized.pages);
   if (!pageNames.length) {
@@ -362,9 +397,9 @@ function renderPreview(source, requestedPage) {
   }
 
   const context = {
-    data: normalized.data,
-    state: page.state || document.state || {},
-    params: page.params || document.params || {},
+    data: overrides.data || normalized.data,
+    state: Object.hasOwn(overrides, "state") ? overrides.state : page.state || document.state || {},
+    params: Object.hasOwn(overrides, "params") ? overrides.params : page.params || document.params || {},
     app: document,
     item: undefined,
     key: undefined,
@@ -376,6 +411,200 @@ function renderPreview(source, requestedPage) {
     ? errorBody(`页面 ${pageName} 没有 layout。`)
     : `<div class="page-title">${escapeHtml(title)}</div>${renderNode(layout, context)}`;
   return { pageNames, pageName, body, error: layout === undefined ? `页面 ${pageName} 没有 layout。` : null };
+}
+
+function renderPreview(source, requestedPage) {
+  let document;
+  try {
+    document = YAML.parse(source) || {};
+  } catch (error) {
+    const message = `YAML 解析失败：${error.message}`;
+    return { pageNames: [], pageName: "", body: errorBody(message), error: message };
+  }
+  return renderDocument(document, requestedPage);
+}
+
+function createPreviewSession(source, requestedPage) {
+  let document;
+  let parseError;
+  try {
+    document = YAML.parse(source) || {};
+  } catch (error) {
+    parseError = error;
+  }
+
+  if (parseError) {
+    return {
+      dispatch: () => renderPreview(source, requestedPage),
+      model: () => renderPreview(source, requestedPage)
+    };
+  }
+
+  const normalized = normalizeDocument(document);
+  const pageNames = Object.keys(normalized.pages);
+  let pageName = requestedPage && pageNames.includes(requestedPage)
+    ? requestedPage
+    : pageNames.includes(normalized.initial)
+      ? normalized.initial
+      : pageNames[0];
+  let state;
+  let params;
+  const stack = [];
+
+  function pageDefinition(name) {
+    const page = normalized.pages[name];
+    return page && typeof page === "object" ? page : undefined;
+  }
+
+  function loadPage(name, nextParams) {
+    const page = pageDefinition(name);
+    if (!page) return false;
+    pageName = name;
+    state = cloneValue(page.state || document.state || {});
+    params = cloneValue(nextParams ?? page.params ?? document.params ?? {});
+    return true;
+  }
+
+  if (pageName) loadPage(pageName);
+
+  function contextFor(key, index) {
+    return {
+      data: normalized.data,
+      state,
+      params,
+      app: document,
+      key,
+      index
+    };
+  }
+
+  function openPage(name, nextParams, mode) {
+    if (!pageDefinition(name)) return;
+    if (mode === "push") stack.push({ pageName, state, params });
+    if (mode === "reset") stack.length = 0;
+    loadPage(name, nextParams);
+  }
+
+  function runActions(actions, context) {
+    for (const action of actionList(actions)) {
+      const entry = actionEntry(action);
+      if (!entry) continue;
+      const { name, config } = entry;
+      switch (name) {
+        case "set":
+          if (config && typeof config === "object" && Object.hasOwn(config, "path")) {
+            writePath(config.path, resolveValue(config.value, context), context);
+          } else {
+            for (const [path, value] of Object.entries(config || {})) {
+              writePath(path, resolveValue(value, context), context);
+            }
+          }
+          break;
+        case "move": {
+          const path = config?.path;
+          const current = Number(readPath(path, context) || 0);
+          const by = Number(resolveValue(config?.by ?? 1, context));
+          const list = readReference(config?.list || config?.within, context);
+          const max = Array.isArray(list) ? Math.max(0, list.length - 1) : Number.MAX_SAFE_INTEGER;
+          writePath(path, Math.min(max, Math.max(0, current + by)), context);
+          break;
+        }
+        case "toggle":
+          if (typeof config === "string") writePath(config, !readPath(config, context), context);
+          else if (config?.path) writePath(config.path, !readPath(config.path, context), context);
+          else {
+            const list = readReference(config?.list || config?.within, context);
+            const index = Number(readReference(config?.index, context) ?? 0);
+            if (Array.isArray(list) && list[index] && config?.field) list[index][config.field] = !list[index][config.field];
+          }
+          break;
+        case "remove": {
+          const list = readReference(config?.list || config?.within, context);
+          const index = Number(readReference(config?.index, context) ?? 0);
+          if (Array.isArray(list) && index >= 0 && index < list.length) list.splice(index, 1);
+          break;
+        }
+        case "append":
+          if (config?.path) {
+            const current = readPath(config.path, context) || "";
+            writePath(config.path, `${current}${resolveValue(config.value, context) ?? ""}`, context);
+          } else {
+            const list = readReference(config?.list, context);
+            if (Array.isArray(list)) list.push(resolveValue(config.value, context));
+          }
+          break;
+        case "backspace": {
+          const path = typeof config === "string" ? config : config?.path;
+          const value = String(readPath(path, context) ?? "");
+          writePath(path, Array.from(value).slice(0, -1).join(""), context);
+          break;
+        }
+        case "push":
+        case "go":
+          openPage(config?.page || config?.route, resolveValue(config?.params || {}, context), "push");
+          break;
+        case "replace":
+          openPage(config?.page || config?.route, resolveValue(config?.params || {}, context), "replace");
+          break;
+        case "reset":
+          openPage(config?.page || config?.route, resolveValue(config?.params || {}, context), "reset");
+          break;
+        case "pop":
+          if (stack.length) {
+            const previous = stack.pop();
+            pageName = previous.pageName;
+            state = previous.state;
+            params = previous.params;
+          }
+          break;
+        case "notify":
+          writePath("state.notice", resolveValue(config, context), context);
+          break;
+        case "if":
+          runActions(evaluateCondition(config?.condition, context) ? config?.then : config?.else, context);
+          break;
+        case "call":
+        case "refresh":
+        case "quit":
+          break;
+        default:
+          break;
+      }
+    }
+  }
+
+  function model() {
+    if (!pageName) return renderDocument(document, requestedPage);
+    return renderDocument(document, pageName, { data: normalized.data, state, params });
+  }
+
+  function dispatch(event = {}) {
+    if (event.type === "selectPage") {
+      stack.length = 0;
+      loadPage(event.page);
+      return model();
+    }
+    if (event.type === "selectList") {
+      if (event.path) writePath(event.path, Number(event.index) || 0, contextFor());
+      return model();
+    }
+    if (event.type === "input") {
+      if (event.path) writePath(event.path, String(event.value ?? ""), contextFor());
+      return model();
+    }
+    if (event.type === "key") {
+      const page = pageDefinition(pageName);
+      const keys = page?.keys && typeof page.keys === "object" ? page.keys : {};
+      const key = String(event.key || "");
+      const actions = Object.hasOwn(keys, key) ? keys[key] : key.length === 1 ? keys.character : undefined;
+      const keyObject = { value: event.value ?? (key.length === 1 ? key : "") };
+      runActions(actions, contextFor(keyObject));
+      return model();
+    }
+    return model();
+  }
+
+  return { dispatch, model };
 }
 
 function createPreviewHtml(model, nonce = "page-tui-preview") {
@@ -405,10 +634,9 @@ body { margin: 0; padding: 16px; color: #d7e0e5; background: #11181d; font-famil
 .component-row > .is-flex { flex: 1 1 0; }
 .component-column > .is-flex { flex: 1 1 auto; }
 .component-text { white-space: pre-wrap; }
-.component-input { min-height: 1.45em; }
+.component-input { display: block; width: 100%; min-height: 1.45em; padding: 0; border: 0; outline: 1px solid transparent; color: #f3f7f8; background: transparent; font: inherit; }
+.component-input:focus { outline: 1px solid #55757d; border-radius: 2px; }
 .input-placeholder { color: #71838d; }
-.input-cursor { color: #f0d47b; animation: blink 1.1s steps(2, start) infinite; }
-@keyframes blink { 50% { opacity: 0; } }
 .component-divider { overflow: hidden; color: #54656d; white-space: nowrap; }
 .component-spacer { min-height: 2px; }
 .component-panel { margin: 4px 0; border: 1px solid #53656e; border-radius: 5px; overflow: hidden; }
@@ -447,7 +675,54 @@ const vscode = acquireVsCodeApi();
 const pageSelect = document.getElementById("page");
 const preview = document.getElementById("preview");
 const status = document.getElementById("status");
+let focusState;
 pageSelect.addEventListener("change", () => vscode.postMessage({ type: "selectPage", page: pageSelect.value }));
+preview.addEventListener("click", (event) => {
+  const item = event.target.closest("[data-preview-list-item]");
+  if (!item) return;
+  vscode.postMessage({ type: "interaction", event: {
+    type: "selectList",
+    path: item.dataset.previewListPath,
+    index: Number(item.dataset.previewListItem)
+  }});
+});
+preview.addEventListener("input", (event) => {
+  const input = event.target.closest("[data-preview-input]");
+  if (!input) return;
+  focusState = {
+    path: input.dataset.previewInput,
+    start: input.selectionStart,
+    end: input.selectionEnd
+  };
+  vscode.postMessage({ type: "interaction", event: {
+    type: "input",
+    path: input.dataset.previewInput,
+    value: input.value
+  }});
+});
+document.addEventListener("keydown", (event) => {
+  if (event.isComposing || event.ctrlKey || event.metaKey || event.altKey) return;
+  const input = event.target.closest?.("[data-preview-input]");
+  if (input && (event.key.length === 1 || ["Backspace", "Delete", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key))) return;
+  const specialKeys = {
+    ArrowUp: "up",
+    ArrowDown: "down",
+    ArrowLeft: "left",
+    ArrowRight: "right",
+    Enter: "enter",
+    Escape: "escape",
+    " ": "space",
+    Backspace: "backspace"
+  };
+  const key = specialKeys[event.key] || (event.key.length === 1 ? event.key : undefined);
+  if (!key) return;
+  event.preventDefault();
+  vscode.postMessage({ type: "interaction", event: {
+    type: "key",
+    key,
+    value: event.key.length === 1 ? event.key : undefined
+  }});
+});
 window.addEventListener("message", (event) => {
   const message = event.data;
   if (!message || message.type !== "update") return;
@@ -462,6 +737,15 @@ window.addEventListener("message", (event) => {
   }
   pageSelect.disabled = message.pageNames.length === 0;
   status.textContent = message.error ? "YAML 或页面结构有问题" : "实时同步";
+  if (focusState) {
+    const nextInput = Array.from(preview.querySelectorAll("[data-preview-input]"))
+      .find((input) => input.dataset.previewInput === focusState.path);
+    if (nextInput) {
+      nextInput.focus();
+      nextInput.setSelectionRange(focusState.start, focusState.end);
+    }
+    focusState = undefined;
+  }
 });
 vscode.postMessage({ type: "ready" });
 </script>
@@ -471,6 +755,7 @@ vscode.postMessage({ type: "ready" });
 
 module.exports = {
   createPreviewHtml,
+  createPreviewSession,
   escapeHtml,
   renderPreview
 };

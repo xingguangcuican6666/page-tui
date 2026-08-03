@@ -3,7 +3,7 @@ const crypto = require("node:crypto");
 const path = require("node:path");
 const YAML = require("yaml");
 const { validatePageTui } = require("./validation");
-const { createPreviewHtml, renderPreview } = require("./preview");
+const { createPreviewHtml, createPreviewSession } = require("./preview");
 const STARTER_PAGE = require("./starter");
 
 const COMPONENT_HELP = {
@@ -82,6 +82,7 @@ let diagnostics;
 let statusBar;
 let previewPanel;
 let previewDocument;
+let previewSession;
 let previewPage;
 let previewTimer;
 let previewReady = false;
@@ -465,7 +466,8 @@ function previewMessage(model) {
 
 function updatePreview() {
   if (!previewPanel || !previewDocument) return;
-  const model = renderPreview(previewDocument.getText(), previewPage);
+  if (!previewSession) previewSession = createPreviewSession(previewDocument.getText(), previewPage);
+  const model = previewSession.model();
   if (model.pageName) previewPage = model.pageName;
   if (!previewReady) {
     previewPanel.webview.html = createPreviewHtml(model, previewNonce);
@@ -479,6 +481,8 @@ function schedulePreviewUpdate(document) {
   clearTimeout(previewTimer);
   previewTimer = setTimeout(() => {
     previewTimer = undefined;
+    const currentPage = previewSession?.model().pageName || previewPage;
+    previewSession = createPreviewSession(document.getText(), currentPage);
     updatePreview();
   }, 120);
 }
@@ -493,6 +497,7 @@ function openPreview() {
   const sameDocument = previewDocument?.uri.toString() === editor.document.uri.toString();
   previewDocument = editor.document;
   if (!sameDocument) previewPage = undefined;
+  previewSession = createPreviewSession(editor.document.getText(), sameDocument ? previewPage : undefined);
 
   if (previewPanel) {
     previewPanel.reveal(vscode.ViewColumn.Beside);
@@ -513,6 +518,7 @@ function openPreview() {
     previewTimer = undefined;
     previewPanel = undefined;
     previewDocument = undefined;
+    previewSession = undefined;
     previewPage = undefined;
     previewReady = false;
   });
@@ -522,6 +528,10 @@ function openPreview() {
       updatePreview();
     } else if (message?.type === "selectPage") {
       previewPage = typeof message.page === "string" ? message.page : undefined;
+      previewSession?.dispatch({ type: "selectPage", page: previewPage });
+      updatePreview();
+    } else if (message?.type === "interaction") {
+      previewSession?.dispatch(message.event || {});
       updatePreview();
     }
   });
