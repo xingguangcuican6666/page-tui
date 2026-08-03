@@ -79,6 +79,7 @@ const ACTION_FIELDS = {
   call: ["with", "args"],
   if: ["condition", "then", "else"]
 };
+const ACTION_CONTAINER_KEYS = new Set(["keys", "on", "then", "else"]);
 
 let diagnostics;
 let statusBar;
@@ -182,7 +183,9 @@ function structuralFields(document, lineNumber) {
   if (keys.includes("keys")) return [];
   const type = [...stack].reverse().find((item) => item.key === "type")?.value;
   if (type && COMPONENT_FIELDS[type]) return COMPONENT_FIELDS[type];
-  const action = [...stack].reverse().find((item) => ACTION_FIELDS[item.key]);
+  const action = isActionContext(document, lineNumber)
+    ? [...stack].reverse().find((item) => ACTION_FIELDS[item.key])
+    : undefined;
   if (action) return ACTION_FIELDS[action.key];
   if (keys.includes("layout")) return LAYOUT_FIELDS;
   if (keys.includes("pages") && stack.some((item) => item.indent > 0)) return PAGE_FIELDS;
@@ -229,6 +232,10 @@ function keyCompletions(document, position, prefix) {
       "Page TUI 按键",
       name + ":"
     ));
+}
+
+function isActionContext(document, lineNumber) {
+  return syntaxStack(document, lineNumber).some((item) => ACTION_CONTAINER_KEYS.has(item.key));
 }
 
 function indentActionSnippet(document, position, body) {
@@ -286,7 +293,7 @@ function provideCompletions(document, position) {
     ));
   }
 
-  if (/^\s*-\s*[A-Za-z0-9_-]*$/.test(before)) {
+  if (isActionContext(document, position.line) && /^\s*-\s*[A-Za-z0-9_-]*$/.test(before)) {
     const snippets = {
       set: "set:\n  path: ${1:state.notice}\n  value: ${2:操作成功}",
       move: "move:\n  path: ${1:state.selected}\n  by: ${2:1}\n  list: ${3:data.items}",

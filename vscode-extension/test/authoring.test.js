@@ -122,6 +122,41 @@ test("action snippets preserve the YAML indentation of the current list item", (
   assert.match(set.insertText.value, /\n {12}path:/);
 });
 
+test("action snippets are not suggested for arbitrary data lists", () => {
+  const document = documentFrom([
+    "data:",
+    "  items:",
+    "    - "
+  ], "page-tui-yaml");
+  const items = provideCompletions(document, { line: 2, character: 6 });
+  assert.equal(items.some((item) => item.label === "append"), false);
+  assert.equal(items.some((item) => item.label === "set"), false);
+});
+
+test("data fields named like actions are not treated as action objects", () => {
+  const document = documentFrom([
+    "data:",
+    "  set:",
+    "    "
+  ], "page-tui-yaml");
+  const items = provideCompletions(document, { line: 2, character: 4 });
+  assert.equal(items.some((item) => item.label === "path"), false);
+  assert.equal(items.some((item) => item.label === "value"), false);
+});
+
+test("action snippets remain available inside a page key handler", () => {
+  const document = documentFrom([
+    "pages:",
+    "  home:",
+    "    keys:",
+    "      enter:",
+    "        - "
+  ], "page-tui-yaml");
+  const items = provideCompletions(document, { line: 4, character: 10 });
+  assert.equal(items.some((item) => item.label === "append"), true);
+  assert.equal(items.some((item) => item.label === "set"), true);
+});
+
 test("the extension does not provide AI inline text", () => {
   assert.equal(extensionSource.includes("registerInlineCompletionItemProvider"), false);
 });
