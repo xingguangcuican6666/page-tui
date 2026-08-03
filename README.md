@@ -9,17 +9,16 @@ npm install
 npm start
 ~~~
 
-示例页面在 examples/easy-tasks/app.yaml，它是一个任务管理器：
+`npm start` 会运行 `src/loader.js`。loader 会优先寻找当前项目根目录的
+`app.yaml`、`app.yml`、`page-tui.yaml` 或 `page-tui.yml`；如果根目录没有，且项目中只有一个这类文件，也会自动使用它。
 
-- ↑ / ↓ 移动选择
-- Enter 打开详情
-- n 新建任务
-- d 删除任务
-- Space 切换完成状态
-- Esc 返回
-- q 退出
+也可以明确指定入口：
 
-初学者真正需要编辑的文件只有 YAML。Node.js 启动文件只是固定模板：examples/easy-tasks.js。
+~~~bash
+npm start -- path/to/app.yaml
+~~~
+
+页面作者通常只需要编辑 YAML，不需要维护固定的 Node.js 启动文件。
 
 ## 超详细文档
 

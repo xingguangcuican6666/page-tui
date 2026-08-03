@@ -4,7 +4,10 @@ const path = require("node:path");
 const YAML = require("yaml");
 const { validatePageTui } = require("./validation");
 const { createPreviewHtml, createPreviewSession } = require("./preview");
+const { createVisualEditorHtml, buildVisualModel, applyVisualOperation } = require("./visual-editor");
 const STARTER_PAGE = require("./starter");
+
+const VISUAL_EDITOR_VIEW_TYPE = "pageTui.visualEditor";
 
 const COMPONENT_HELP = {
   text: ["text：显示一行文字。", "value、bind 或 template 三选一。"],
@@ -644,6 +647,204 @@ function openPreview() {
   updatePreview();
 }
 
+async function loadExternalPageDocuments(document) {
+  const pages = {};
+  if (document.uri.scheme !== "file") return pages;
+
+  let root;
+  try {
+    root = YAML.parse(document.getText()) || {};
+  } catch {
+    return pages;
+  }
+  if (!root.pages || typeof root.pages !== "object" || Array.isArray(root.pages)) return pages;
+
+  for (const [name, source] of Object.entries(root.pages)) {
+    if (typeof source !== "string") continue;
+    const uri = vscode.Uri.file(path.resolve(path.dirname(document.uri.fsPath), source));
+    try {
+      const pageDocument = await vscode.workspace.openTextDocument(uri);
+      pages[name] = {
+        uri,
+        source: pageDocument.getText(),
+        fileName: pageDocument.fileName
+      };
+    } catch {
+      // 缺失的外部页面由当前文档的诊断显示，编辑器仍然可以继续编辑 manifest。
+    }
+  }
+  return pages;
+}
+
+function createVisualEditorProvider() {
+  return {
+    async resolveCustomTextEditor(document, webviewPanel) {
+      webviewPanel.webview.options = { enableScripts: true };
+      let selectedPage;
+      let selectedPath = [];
+      let externalPages = await loadExternalPageDocuments(document);
+      let operationQueue = Promise.resolve();
+
+      const model = () => buildVisualModel(
+        document.getText(),
+        selectedPage,
+        selectedPath,
+        { externalPages }
+      );
+
+      const sendModel = () => {
+        webviewPanel.webview.postMessage({
+          type: "model",
+          model: model()
+        });
+      };
+
+      webviewPanel.webview.html = createVisualEditorHtml(model());
+
+      const reloadExternalPages = async () => {
+        externalPages = await loadExternalPageDocuments(document);
+      };
+
+      const replaceDocumentText = async (target, nextText) => {
+        const edit = new vscode.WorkspaceEdit();
+        edit.replace(
+          target.uri,
+          new vscode.Range(target.positionAt(0), target.positionAt(target.getText().length)),
+          nextText
+        );
+        const applied = await vscode.workspace.applyEdit(edit);
+        if (!applied) throw new Error("VS Code 没有接受这次 YAML 修改。");
+      };
+
+      const runOperation = async (message) => {
+        const operationPage = selectedPage;
+        const targetInfo = message.target === "manifest"
+          ? undefined
+          : externalPages[operationPage];
+        const target = targetInfo
+          ? await vscode.workspace.openTextDocument(targetInfo.uri)
+          : document;
+        const source = target.getText();
+        const nextText = applyVisualOperation(source, message.operation);
+        if (nextText === source) return;
+        await replaceDocumentText(target, nextText);
+        if (targetInfo) targetInfo.source = nextText;
+        if (message.operation?.type === "deletePage" && message.operation.page === selectedPage) {
+          selectedPage = undefined;
+          selectedPath = [];
+        }
+        sendModel();
+      };
+
+      const changeSubscription = vscode.workspace.onDidChangeTextDocument((event) => {
+        const uri = event.document.uri.toString();
+        if (uri === document.uri.toString()) {
+          void reloadExternalPages().then(sendModel);
+          return;
+        }
+        if (Object.values(externalPages).some((info) => info.uri.toString() === uri)) {
+          const info = Object.values(externalPages).find((item) => item.uri.toString() === uri);
+          if (info) info.source = event.document.getText();
+          sendModel();
+        }
+      });
+      const enqueueOperation = (message) => {
+        operationQueue = operationQueue
+          .then(() => runOperation(message))
+          .catch((error) => {
+            webviewPanel.webview.postMessage({
+              type: "error",
+              message: error.message || String(error)
+            });
+          });
+        return operationQueue;
+      };
+      const messageSubscription = webviewPanel.webview.onDidReceiveMessage(async (message) => {
+        if (!message || typeof message.type !== "string") return;
+        if (message.type === "ready") {
+          sendModel();
+          return;
+        }
+        if (message.type === "selectPage") {
+          selectedPage = typeof message.page === "string" ? message.page : undefined;
+          selectedPath = [];
+          sendModel();
+          return;
+        }
+        if (message.type === "selectNode") {
+          selectedPath = Array.isArray(message.path) ? message.path : [];
+          sendModel();
+          return;
+        }
+        if (message.type === "deletePage") {
+          const page = typeof message.page === "string" ? message.page : "";
+          if (!page) return;
+          const confirmed = await vscode.window.showWarningMessage(
+            `确定删除页面“${page}”吗？外部页面文件不会被删除。`,
+            { modal: true },
+            "删除页面"
+          );
+          if (confirmed !== "删除页面") return;
+          await enqueueOperation({
+            type: "operation",
+            target: "manifest",
+            operation: { type: "deletePage", page }
+          });
+          return;
+        }
+        if (message.type === "operation") {
+          await enqueueOperation(message);
+          return;
+        }
+        if (message.type === "source") {
+          const info = externalPages[selectedPage];
+          const sourceDocument = info
+            ? await vscode.workspace.openTextDocument(info.uri)
+            : document;
+          await vscode.window.showTextDocument(sourceDocument, { preview: false });
+          return;
+        }
+        if (message.type === "preview") {
+          await vscode.window.showTextDocument(document, { preview: true });
+          openPreview();
+        }
+      });
+
+      webviewPanel.onDidDispose(() => {
+        changeSubscription.dispose();
+        messageSubscription.dispose();
+      });
+    }
+  };
+}
+
+async function openVisualEditor(resource) {
+  const activeDocument = vscode.window.activeTextEditor?.document;
+  let document = activeDocument;
+  if (resource && typeof resource.scheme === "string"
+    && (!document || document.uri.toString() !== resource.toString())) {
+    try {
+      document = await vscode.workspace.openTextDocument(resource);
+    } catch (error) {
+      vscode.window.showErrorMessage(`无法打开 Page TUI 文件：${error.message || String(error)}`);
+      return;
+    }
+  }
+  if (!document || !isPageTuiDocument(document)) {
+    vscode.window.showWarningMessage("请先打开 app.yaml 或 Page TUI YAML 页面。");
+    return;
+  }
+  try {
+    await vscode.commands.executeCommand(
+      "vscode.openWith",
+      document.uri,
+      VISUAL_EDITOR_VIEW_TYPE
+    );
+  } catch (error) {
+    vscode.window.showErrorMessage(`无法打开 Page TUI 可视化编辑器：${error.message || String(error)}`);
+  }
+}
+
 function activate(context) {
   diagnostics = vscode.languages.createDiagnosticCollection("page-tui");
   statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
@@ -651,6 +852,14 @@ function activate(context) {
 
   const selector = DOCUMENT_SELECTOR;
   context.subscriptions.push(
+    vscode.window.registerCustomEditorProvider(
+      VISUAL_EDITOR_VIEW_TYPE,
+      createVisualEditorProvider(),
+      {
+        webviewOptions: { retainContextWhenHidden: false },
+        supportsMultipleEditorsPerDocument: false
+      }
+    ),
     vscode.languages.registerCompletionItemProvider(
       selector,
       { provideCompletionItems: provideCompletions },
@@ -666,6 +875,7 @@ function activate(context) {
     vscode.commands.registerCommand("pageTui.validate", validateCurrent),
     vscode.commands.registerCommand("pageTui.setLanguage", setLanguage),
     vscode.commands.registerCommand("pageTui.preview", openPreview),
+    vscode.commands.registerCommand("pageTui.openVisualEditor", openVisualEditor),
     vscode.commands.registerCommand("pageTui.run", runProject),
     vscode.commands.registerCommand("pageTui.openDocs", openDocs),
     vscode.workspace.onDidChangeTextDocument((event) => {

@@ -48,21 +48,13 @@ npm install
 npm start
 ~~~
 
-你会看到一个任务列表页面。
+loader 会自动发现项目中的 manifest 并启动页面。如果项目中有多个 manifest，请明确指定：
 
-默认键位：
+~~~bash
+npm start -- path/to/app.yaml
+~~~
 
-| 键 | 行为 |
-| --- | --- |
-| ↑ | 选择上一个任务 |
-| ↓ | 选择下一个任务 |
-| Enter | 打开任务详情 |
-| n | 打开新建任务页 |
-| d | 删除当前任务 |
-| Space | 切换完成状态 |
-| Esc | 返回上一页 |
-| q | 退出 |
-| Ctrl+C | 强制退出 |
+键位由 manifest 中当前页面的 `keys` 定义。没有被页面处理的 `q` 会退出应用，`Esc` 默认返回上一页，`Ctrl+C` 强制退出。
 
 退出后，终端会恢复原来的光标和屏幕。
 
@@ -70,11 +62,7 @@ npm start
 
 ~~~text
 page-tui/
-├── examples/
-│   ├── easy-tasks.js             # 固定启动器
-│   ├── easy-tasks/
-│   │   └── app.yaml              # 初学者真正修改的页面文件
-│   └── tasks.js                  # 直接使用 class API 的高级示例
+├── examples/                     # 可选的示例 manifest
 ├── src/
 │   ├── core/
 │   │   ├── app.js                # 应用生命周期
@@ -107,7 +95,7 @@ pages:
       value: "你好，Page TUI"
 ~~~
 
-创建启动文件 run.js：
+如果需要从代码中指定 manifest，可以创建启动文件 run.js：
 
 ~~~js
 const { createDeclarativeApp } = require("./src");
@@ -124,6 +112,12 @@ createDeclarativeApp({
 
 ~~~bash
 node run.js
+~~~
+
+直接使用通用 loader 也可以：
+
+~~~bash
+node src/loader.js ui/app.yaml
 ~~~
 
 这里的 initial: home 表示应用启动时打开 pages.home。

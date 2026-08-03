@@ -112,17 +112,22 @@ const { createApp, Page, ui } = require("page-tui");
 
 ## 示例位置
 
-默认示例：
+默认入口：
 
-- 启动文件：[examples/easy-tasks.js](../examples/easy-tasks.js)
-- 页面文件：[examples/easy-tasks/app.yaml](../examples/easy-tasks/app.yaml)
-- 底层 class 示例：[examples/tasks.js](../examples/tasks.js)
+- 通用 loader：[src/loader.js](../src/loader.js)
+- 页面文件：项目根目录的 `app.yaml`，或显式指定的 manifest
 
 运行：
 
 ~~~bash
 npm install
 npm start
+~~~
+
+指定入口：
+
+~~~bash
+npm start -- path/to/app.yaml
 ~~~
 
 ## 验证项目

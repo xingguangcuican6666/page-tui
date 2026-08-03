@@ -1,0 +1,86 @@
+initial: home
+
+data:
+  tasks:
+    - title: "看懂页面布局"
+      done: true
+      detail: "理解 column、panel 和 list。"
+    - title: "学习变量绑定"
+      done: false
+      detail: "理解 data、state 和 params。"
+    - title: "做一个自己的 TUI"
+      done: false
+      detail: "从 YAML 开始设计页面。"
+
+pages:
+  home:
+    title: "任务列表"
+    state:
+      selected: 0
+      notice: ""
+    layout:
+      type: column
+      children:
+        - type: text
+          value: "任务列表"
+          style: title
+        - type: panel
+          title: "任务列表"
+          child:
+            type: list
+            items: data.tasks
+            selected: state.selected
+            label: "{{ item.title }}"
+    keys:
+      up:
+        - move:
+            path: state.selected
+            by: -1
+            list: data.tasks
+      down:
+        - move:
+            path: state.selected
+            by: 1
+            list: data.tasks
+      enter:
+        - push:
+            page: detail
+            params:
+              task:
+                itemAt:
+                  list: data.tasks
+                  index: state.selected
+      n:
+        - push:
+            page: create
+
+  detail:
+    title: "任务详情"
+    layout:
+      type: text
+      template: "{{ params.task.title }}：{{ params.task.detail }}"
+    keys:
+      escape:
+        - pop
+
+  create:
+    title: "新建任务"
+    state:
+      title: ""
+    layout:
+      type: input
+      bind: state.title
+    keys:
+      character:
+        - append:
+            path: state.title
+            value:
+              bind: key.value
+      enter:
+        - append:
+            list: data.tasks
+            value:
+              title:
+                bind: state.title
+              done: false
+        - pop

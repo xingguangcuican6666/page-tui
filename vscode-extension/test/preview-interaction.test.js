@@ -84,4 +84,12 @@ test("预览显示实时变量并可以重置会话", () => {
   const html = createPreviewHtml(session.model());
   assert.match(html, /实时变量/);
   assert.match(html, /重置预览/);
+  assert.match(html, /class="variables-tree"/);
+  assert.match(html, /function renderVariableTree/);
+  assert.match(html, /class="variable-group"/);
+  assert.match(html, /renderVariableTree\(message\.variables/);
+  assert.doesNotMatch(html, /<pre id="variables">/);
+  const script = html.match(/<script nonce="[^"]+">([\s\S]*)<\/script>/);
+  assert.ok(script);
+  assert.doesNotThrow(() => new Function("acquireVsCodeApi", script[1]));
 });

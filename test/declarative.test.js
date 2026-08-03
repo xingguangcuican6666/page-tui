@@ -29,7 +29,7 @@ function key(name, value = name) {
 test("YAML pages bind variables and navigate through the page stack", async () => {
   const terminal = new Terminal({ input: new FakeInput(), output: new FakeOutput() });
   const app = createDeclarativeApp({
-    manifest: path.join(__dirname, "..", "examples", "easy-tasks", "app.yaml"),
+    manifest: path.join(__dirname, "fixtures", "sample-app.yaml"),
     terminal,
     renderer: { render: () => [] }
   });

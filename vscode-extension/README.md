@@ -13,6 +13,7 @@
 - YAML、组件、action 和页面跳转校验。
 - 一键生成初学者页面。
 - 一键插入完整页面模板。
+- 可视化编辑页面、布局树、变量和 action，并自动写回 YAML。
 - Webview 实时预览页面布局和变量结果。
 - 一键运行当前项目。
 - 状态栏显示当前页面是否有错误。
@@ -49,7 +50,7 @@ npx @vscode/vsce package
 生成文件类似：
 
 ~~~text
-page-tui-vscode-0.1.4.vsix
+page-tui-vscode-0.2.0.vsix
 ~~~
 
 在 VS Code 中执行：
@@ -90,7 +91,32 @@ Page TUI: 将当前文件设为 Page TUI YAML
 
 所以在 `app.yaml` 根部输入 `ke` 不会出现 `keys`；应在 `pages.home.keys` 下写按键，或把页面拆到独立页面文件。`data` 本身是对象，列表要放在 `data.items`、`data.tasks` 等字段下。
 
-## 4. 最常用的工作流
+## 4. 可视化编辑器
+
+打开 `app.yaml`、独立页面文件或 `ui/pages/**/*.yaml` 后，在命令面板运行：
+
+~~~text
+Page TUI: 打开可视化编辑器
+~~~
+
+左侧管理页面和变量，中间编辑布局树与 action，右侧修改当前节点属性。布局节点可以拖拽到同级节点前面，也可以使用上移、下移和删除操作。
+
+绑定、列表、action 路径和页面目标支持候选值。新增组件、变量、页面或 action 后会自动写回当前 YAML；修改不会执行 Node.js 代码。
+
+样式属性支持预设样式、自定义样式对象和条件样式；`visible` 与 `if.condition` 使用条件构建器，可选择直接变量、`notEmpty`、`empty`、`truthy`、`equals`、`notEquals`、`all`、`any` 和 `not`，也可以切换到高级 JSON。直接判断变量表示判断变量的真值，例如 `condition: data.items`；选择“等于”或“不等于”后，会分别显示“左值”和“右值”，两边都可以从变量路径候选中选择，也可以切换为固定值并手动输入。例如：
+
+~~~yaml
+condition:
+  equals:
+    - state.selected
+    - 0
+~~~
+
+`if` 的 `then`、`else` 分支可以选择、添加和删除动作，并保留参数 JSON 编辑入口。扩展升级后如果已经打开的可视化编辑器仍显示旧内容，请关闭该编辑器标签页并重新打开；新的 custom editor 不会继续保留旧的隐藏 Webview 状态。
+
+manifest 使用外部页面文件时，页面列表中的外部页面也可以直接编辑。共享 `data` 写入 manifest，外部页面的 layout、state 和 keys 写入被引用的页面文件。YAML AST 写回会尽量保留注释、未知字段和原有结构；需要高级配置时可以点击“源码”切回文本编辑器。
+
+## 5. 最常用的工作流
 
 ### 第一步：创建页面
 
@@ -257,7 +283,7 @@ Page TUI: 打开实时预览
 
 预览会在内存中执行安全的内置 keys 动作，例如 set、move、toggle、append、push、pop 和 if；不会执行 call、refresh、Node.js service、网络请求或数据库操作。需要验证真实运行环境时，使用“Page TUI: 运行当前项目”。
 
-## 5. 校验功能
+## 6. 校验功能
 
 扩展会在编辑时检查：
 
@@ -279,7 +305,7 @@ Page TUI: 校验当前页面
 
 错误会显示在 Problems 面板中，状态栏会显示错误或提醒数量。
 
-## 6. 命令列表
+## 7. 命令列表
 
 | 命令 | 作用 |
 | --- | --- |
@@ -288,10 +314,11 @@ Page TUI: 校验当前页面
 | Page TUI: 校验当前页面 | 手动运行页面校验 |
 | Page TUI: 将当前文件设为 Page TUI YAML | 手动启用语言支持 |
 | Page TUI: 打开实时预览 | 在编辑器旁边实时查看页面布局 |
+| Page TUI: 打开可视化编辑器 | 用布局树和属性表单编辑页面 |
 | Page TUI: 运行当前项目 | 在终端执行启动命令 |
 | Page TUI: 打开中文文档 | 打开仓库的中文文档目录 |
 
-## 7. 设置项
+## 8. 设置项
 
 ~~~json
 {
@@ -319,7 +346,7 @@ Page TUI: 校验当前页面
 
 默认打开 GitHub 中文文档。如果你维护了自己的内部文档，可以改成自己的地址。
 
-## 8. 与 YAML 扩展配合
+## 9. 与 YAML 扩展配合
 
 建议同时安装 VS Code 的 YAML 扩展，以获得更完整的 YAML 缩进、格式和基础语法能力。
 
@@ -341,11 +368,12 @@ Page TUI 中文说明
 Page TUI: 将当前文件设为 Page TUI YAML
 ~~~
 
-## 9. 扩展目录
+## 10. 扩展目录
 
 ~~~text
 vscode-extension/
-├── extension.js                  # VS Code 激活入口、补全、悬停和命令
+├── extension.js                  # VS Code 激活入口、补全、悬停、命令和 custom editor
+├── visual-editor.js              # 可视化编辑器模型、AST 操作和 Webview
 ├── preview.js                    # Webview 预览渲染和变量模板计算
 ├── validation.js                 # 不依赖 VS Code 的页面校验逻辑
 ├── starter.js                    # 一键生成的页面模板
@@ -357,7 +385,7 @@ vscode-extension/
 └── test/                         # 扩展逻辑测试
 ~~~
 
-## 10. 当前边界
+## 11. 当前边界
 
 这个扩展不会执行 YAML 中的任意 JavaScript，也不会替代 Page TUI runtime。实时预览只在内存中模拟有限的页面状态和内置动作，不会执行外部 service。
 
@@ -373,7 +401,7 @@ vscode-extension/
 
 扩展校验是帮助你尽早发现明显错误，不是 TypeScript 类型系统，也不是完整语言服务器。
 
-## 11. 测试
+## 12. 测试
 
 在仓库根目录运行：
 

@@ -5,7 +5,7 @@ const path = require("node:path");
 const { createPreviewHtml, renderPreview } = require("../preview");
 
 const example = fs.readFileSync(
-  path.join(__dirname, "..", "..", "examples", "easy-tasks", "app.yaml"),
+  path.join(__dirname, "..", "..", "test", "fixtures", "sample-app.yaml"),
   "utf8"
 );
 

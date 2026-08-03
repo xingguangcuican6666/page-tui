@@ -35,6 +35,7 @@ vscode-extension/
 - 输入 - 可以补全 action。
 - 输入 bind: 可以补全变量路径。
 - 输入 page: 可以补全页面名称。
+- 可视化编辑页面、布局树、变量和 action。
 - 打开实时预览可以看到布局和变量结果。
 - 鼠标悬停会显示中文解释。
 - 错误会显示在 Problems 面板。
@@ -97,7 +98,32 @@ layout:
 
 children 的顺序就是屏幕从上到下的顺序。
 
-## 4. 写布局时的提示
+## 4. 可视化编辑器
+
+打开 `app.yaml`、独立页面文件或 `ui/pages/**/*.yaml` 后，在命令面板运行：
+
+~~~text
+Page TUI: 打开可视化编辑器
+~~~
+
+编辑器的左侧是页面和变量，中间是布局树与 action，右侧是当前节点属性。布局节点可以拖拽到同级节点前面，也可以使用上移、下移和删除操作。
+
+绑定、列表、action 路径和页面目标字段会提供当前项目中的变量或 route 候选。新增组件、变量、页面或 action 后会自动写回 YAML。
+
+样式属性支持预设样式、自定义样式对象和条件样式；`visible` 与 `if.condition` 使用条件构建器，可选择直接变量、`notEmpty`、`empty`、`truthy`、`equals`、`notEquals`、`all`、`any` 和 `not`，也可以切换到高级 JSON。直接判断变量表示判断变量的真值，例如 `condition: data.items`；选择“等于”或“不等于”后，会分别显示“左值”和“右值”，两边都可以从变量路径候选中选择，也可以切换为固定值并手动输入。例如：
+
+~~~yaml
+condition:
+  equals:
+    - state.selected
+    - 0
+~~~
+
+`if` 的 `then`、`else` 分支可以选择、添加和删除动作，并保留参数 JSON 编辑入口。扩展升级后如果已经打开的可视化编辑器仍显示旧内容，请关闭该编辑器标签页并重新打开；新的 custom editor 不会继续保留旧的隐藏 Webview 状态。
+
+如果 manifest 的 `pages` 使用了外部文件路径，选择外部页面时，layout、state 和 keys 会写入对应页面文件；共享 `data` 和页面注册仍写入 manifest。写回使用 YAML AST，因此会保留注释、未知字段和未编辑的高级配置。点击“源码”可以随时回到普通 YAML 编辑器，点击“打开预览”可以联动现有实时预览。
+
+## 5. 写布局时的提示
 
 输入：
 
@@ -142,7 +168,7 @@ layout:
         label: "{{ item.title }}"
 ~~~
 
-## 5. 写变量时的提示
+## 6. 写变量时的提示
 
 Page TUI 变量始终从明确的根开始：
 
@@ -173,7 +199,7 @@ item   list 当前项目
 key    当前按键
 ~~~
 
-## 6. 写交互时的提示
+## 7. 写交互时的提示
 
 在 keys 下输入 -：
 
@@ -213,7 +239,7 @@ keys:
 
 `data` 的字段名由项目自己定义，扩展不会凭空生成 `name`、`title` 等业务字段；灰色斜体文字通常是 VS Code/Copilot 的 AI 内联建议，不属于 Page TUI 补全。
 
-## 7. 校验错误怎么看
+## 8. 校验错误怎么看
 
 扩展会把结构错误显示为红色波浪线，并在 Problems 面板显示中文消息。
 
@@ -238,7 +264,7 @@ type: card
 
 会提示可用组件列表。
 
-## 8. 页面运行
+## 9. 页面运行
 
 保存 YAML 后，在命令面板运行：
 
@@ -246,10 +272,18 @@ type: card
 Page TUI: 运行当前项目
 ~~~
 
-默认执行 npm start，它对应仓库中的：
+默认执行 `npm start`，对应通用入口：
 
 ~~~text
-examples/easy-tasks.js
+src/loader.js
+~~~
+
+loader 会自动发现当前项目的 `app.yaml`、`app.yml`、`page-tui.yaml` 或 `page-tui.yml`。项目中有多个 manifest 时，可以在设置中指定完整命令，例如：
+
+~~~json
+{
+  "pageTui.runCommand": "node src/loader.js path/to/app.yaml"
+}
 ~~~
 
 自己的项目如果使用：
@@ -266,7 +300,7 @@ node start.js
 }
 ~~~
 
-## 9. 实时预览
+## 10. 实时预览
 
 打开命令面板，运行：
 
@@ -284,11 +318,11 @@ Page TUI: 打开实时预览
 - text、input、column、row、panel、list、divider 和 spacer 都有对应的预览样式。
 - YAML 正在输入、暂时无法解析时，面板显示错误；修正后自动恢复。
 
-例如打开 `examples/easy-tasks/app.yaml` 后，运行命令即可看到 `home`、`detail` 和 `create` 三个页面。选择 `detail` 时，由于没有真实运行时传入 `params.task`，依赖它的文本可能为空，这是正常的静态预览结果。
+打开任意 manifest 后，运行命令即可启动其中声明的页面和交互。预览不需要真实运行时传入 service 或外部参数，缺少这些运行时数据时对应文本为空属于正常的静态预览结果。
 
 预览会在内存中执行安全的内置 keys 动作，例如 set、move、toggle、append、push、pop 和 if；不会执行 call、refresh、Node.js service、网络请求或数据库操作。要验证真实运行环境，请继续使用“Page TUI: 运行当前项目”。
 
-## 10. 推荐工作习惯
+## 11. 推荐工作习惯
 
 建议按下面顺序写页面：
 
@@ -303,7 +337,7 @@ Page TUI: 打开实时预览
 
 不要一开始就同时修改布局、变量、动作和 service。分层修改更容易定位问题。
 
-## 11. 扩展与 Page TUI 的边界
+## 12. 扩展与 Page TUI 的边界
 
 扩展提供编辑体验：
 
@@ -336,7 +370,7 @@ Page TUI runtime 负责运行体验：
       bind: state.title
 ~~~
 
-## 12. 当前限制
+## 13. 当前限制
 
 当前版本是轻量扩展，暂时不会：
 

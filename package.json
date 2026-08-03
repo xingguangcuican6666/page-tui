@@ -12,7 +12,7 @@
     "node": ">=18"
   },
   "scripts": {
-    "start": "node examples/easy-tasks.js",
+    "start": "node src/loader.js",
     "test": "node --test",
     "test:extension": "npm --prefix vscode-extension test",
     "package:extension": "npm --prefix vscode-extension run package"

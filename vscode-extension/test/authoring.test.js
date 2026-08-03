@@ -75,6 +75,26 @@ test("实时预览命令已注册", () => {
   );
 });
 
+test("可视化编辑器 custom editor 和命令已注册", () => {
+  assert.equal(packageJson.activationEvents.includes("onCommand:pageTui.openVisualEditor"), true);
+  assert.equal(
+    packageJson.contributes.commands.some((command) => command.command === "pageTui.openVisualEditor"),
+    true
+  );
+  assert.equal(
+    packageJson.contributes.customEditors.some((editor) => editor.viewType === "pageTui.visualEditor"),
+    true
+  );
+  const visualEditor = packageJson.contributes.customEditors.find(
+    (editor) => editor.viewType === "pageTui.visualEditor"
+  );
+  assert.equal(visualEditor.selector.every((item) => typeof item.filenamePattern === "string"), true);
+  assert.equal(visualEditor.selector.some((item) => Object.prototype.hasOwnProperty.call(item, "filename")), false);
+  assert.match(extensionSource, /message\.type === "deletePage"/);
+  assert.match(extensionSource, /showWarningMessage\(/);
+  assert.match(extensionSource, /webviewOptions: \{ retainContextWhenHidden: false \}/);
+});
+
 test("root fields are suggested while typing data", () => {
   const document = documentFrom(["da"], "page-tui-yaml");
   const items = provideCompletions(document, { line: 0, character: 2 });

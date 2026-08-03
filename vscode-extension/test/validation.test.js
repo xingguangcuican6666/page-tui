@@ -14,7 +14,7 @@ test("starter page is valid", () => {
 });
 
 test("repository example is valid", () => {
-  const file = path.join(__dirname, "..", "..", "examples", "easy-tasks", "app.yaml");
+  const file = path.join(__dirname, "..", "..", "test", "fixtures", "sample-app.yaml");
   assert.deepEqual(errors(fs.readFileSync(file, "utf8")), []);
 });
 

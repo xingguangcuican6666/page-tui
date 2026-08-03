@@ -640,7 +640,12 @@ function createPreviewHtml(model, nonce = "page-tui-preview") {
     ? model.pageNames.map((name) => `<option value="${escapeHtml(name)}"${name === model.pageName ? " selected" : ""}>${escapeHtml(name)}</option>`).join("")
     : '<option value="">没有可预览的页面</option>';
   const initialStatus = model.error ? "YAML 或页面结构有问题" : "实时同步";
-  const variables = JSON.stringify(model.variables || {}, null, 2);
+  const variables = (JSON.stringify(model.variables || {}) || "{}")
+    .replaceAll("<", "\\u003c")
+    .replaceAll(">", "\\u003e")
+    .replaceAll("&", "\\u0026")
+    .replaceAll("\u2028", "\\u2028")
+    .replaceAll("\u2029", "\\u2029");
   return `<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -694,7 +699,22 @@ body { margin: 0; padding: 16px; color: #d7e0e5; background: #11181d; font-famil
 .theme-input { color: #f3f7f8; text-decoration: underline; text-decoration-color: #6ed6e8; }
 .variables { width: min(100%, 980px); margin: 14px auto 0; border: 1px solid #36464e; border-radius: 6px; background: #101a20; }
 .variables summary { padding: 8px 12px; color: #9edce4; cursor: pointer; }
-.variables pre { max-height: 260px; margin: 0; padding: 0 12px 12px; overflow: auto; color: #b7c8ce; font: 12px/1.45 "Cascadia Code", "SFMono-Regular", Consolas, monospace; white-space: pre-wrap; }
+.variables-tree { max-height: 300px; margin: 0; padding: 4px 12px 12px; overflow: auto; color: #b7c8ce; font: 12px/1.45 "Cascadia Code", "SFMono-Regular", Consolas, monospace; }
+.variable-group { margin: 0; }
+.variable-group > summary { display: flex; align-items: baseline; gap: 8px; min-height: 22px; padding: 2px 0; list-style: none; cursor: pointer; }
+.variable-group > summary::-webkit-details-marker { display: none; }
+.variable-group > summary::before { content: "▸"; width: 10px; color: #71858e; }
+.variable-group[open] > summary::before { content: "▾"; }
+.variable-children { margin-left: 5px; padding-left: 13px; border-left: 1px solid #2c3b42; }
+.variable-entry { display: flex; align-items: baseline; gap: 8px; min-height: 22px; padding: 2px 0; }
+.variable-key { color: #9edce4; }
+.variable-colon { color: #61757d; }
+.variable-type, .variable-count { color: #71858e; }
+.variable-value { min-width: 0; overflow-wrap: anywhere; }
+.variable-value-string { color: #ce9178; }
+.variable-value-number { color: #b5cea8; }
+.variable-value-boolean, .variable-value-null { color: #569cd6; }
+.variable-value-undefined, .variable-empty { color: #71858e; font-style: italic; }
 .preview-error-card { max-width: 760px; padding: 16px; border: 1px solid #9b4d57; border-radius: 6px; color: #ffb2b7; background: #2b171c; }
 .preview-error-card strong { display: block; margin-bottom: 10px; color: #ff7f87; }
 .preview-error-card pre { margin: 0; overflow: auto; white-space: pre-wrap; font-family: inherit; }
@@ -704,15 +724,59 @@ body { margin: 0; padding: 16px; color: #d7e0e5; background: #11181d; font-famil
 <body>
 <div class="toolbar"><strong>Page TUI 实时预览</strong><label for="page">页面</label><select id="page" ${model.pageNames.length ? "" : "disabled"}>${options}</select><button id="reset" type="button">重置预览</button><span id="status" class="status">${initialStatus}</span></div>
 <main id="preview" class="preview-frame">${model.body}</main>
-<details class="variables" open><summary>实时变量（data / state / params）</summary><pre id="variables">${escapeHtml(variables)}</pre></details>
+<details class="variables" open><summary>实时变量（data / state / params）</summary><div id="variables" class="variables-tree"></div></details>
 <script nonce="${nonce}">
 const vscode = acquireVsCodeApi();
+const initialVariables = ${variables};
 const pageSelect = document.getElementById("page");
 const resetButton = document.getElementById("reset");
 const preview = document.getElementById("preview");
 const status = document.getElementById("status");
 const variablesView = document.getElementById("variables");
 let focusState;
+function escapeVariableHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+function variableType(value) {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "array";
+  return typeof value;
+}
+function variableScalar(value) {
+  if (typeof value === "string") return JSON.stringify(value);
+  if (value === undefined) return "undefined";
+  return String(value);
+}
+function renderVariableNode(key, value, depth = 0, ancestors = [], arrayParent = false) {
+  const label = arrayParent ? "[" + key + "]" : key;
+  const type = variableType(value);
+  if (value === null || typeof value !== "object") {
+    return '<div class="variable-entry"><span class="variable-key">' + escapeVariableHtml(label) + '</span><span class="variable-colon">:</span><span class="variable-value variable-value-' + type + '">' + escapeVariableHtml(variableScalar(value)) + '</span></div>';
+  }
+  if (ancestors.includes(value)) {
+    return '<div class="variable-entry"><span class="variable-key">' + escapeVariableHtml(label) + '</span><span class="variable-colon">:</span><span class="variable-value variable-value-undefined">[循环引用]</span></div>';
+  }
+  const entries = Array.isArray(value)
+    ? value.map((item, index) => [String(index), item])
+    : Object.entries(value);
+  const children = entries.length
+    ? entries.map(([childKey, childValue]) => renderVariableNode(childKey, childValue, depth + 1, ancestors.concat(value), Array.isArray(value))).join("")
+    : '<div class="variable-empty">空</div>';
+  return '<details class="variable-group"' + (depth < 1 ? ' open' : '') + '><summary><span class="variable-key">' + escapeVariableHtml(label) + '</span><span class="variable-type">' + type + '</span><span class="variable-count">' + entries.length + '</span></summary><div class="variable-children">' + children + '</div></details>';
+}
+function renderVariableTree(value) {
+  if (!value || typeof value !== "object") return '<div class="variable-empty">暂无变量</div>';
+  const entries = Object.entries(value);
+  return entries.length
+    ? entries.map(([key, child]) => renderVariableNode(key, child)).join("")
+    : '<div class="variable-empty">暂无变量</div>';
+}
+variablesView.innerHTML = renderVariableTree(initialVariables);
 pageSelect.addEventListener("change", () => vscode.postMessage({ type: "selectPage", page: pageSelect.value }));
 resetButton.addEventListener("click", () => vscode.postMessage({ type: "reset" }));
 preview.addEventListener("click", (event) => {
@@ -775,7 +839,7 @@ window.addEventListener("message", (event) => {
   }
   pageSelect.disabled = message.pageNames.length === 0;
   status.textContent = message.error ? "YAML 或页面结构有问题" : "实时同步";
-  variablesView.textContent = JSON.stringify(message.variables || {}, null, 2);
+  variablesView.innerHTML = renderVariableTree(message.variables || {});
   if (focusState) {
     const nextInput = Array.from(preview.querySelectorAll("[data-preview-input]"))
       .find((input) => input.dataset.previewInput === focusState.path);
