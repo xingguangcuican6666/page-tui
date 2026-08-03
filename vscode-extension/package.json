@@ -1,0 +1,177 @@
+{
+  "name": "page-tui-vscode",
+  "displayName": "Page TUI",
+  "description": "为 Page TUI YAML 页面提供补全、悬停说明、校验、模板和运行命令。",
+  "version": "0.1.0",
+  "publisher": "xingguangcuican",
+  "license": "MIT",
+  "main": "./extension.js",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Snippets",
+    "Linters"
+  ],
+  "keywords": [
+    "page-tui",
+    "tui",
+    "yaml",
+    "nodejs"
+  ],
+  "activationEvents": [
+    "onLanguage:page-tui-yaml",
+    "onCommand:pageTui.createStarter",
+    "onCommand:pageTui.insertTemplate",
+    "onCommand:pageTui.validate",
+    "onCommand:pageTui.setLanguage",
+    "onCommand:pageTui.run",
+    "onCommand:pageTui.openDocs"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/xingguangcuican6666/page-tui.git",
+    "directory": "vscode-extension"
+  },
+  "scripts": {
+    "test": "node test/validation.test.js",
+    "package": "npx @vscode/vsce package"
+  },
+  "dependencies": {
+    "yaml": "^2.8.1"
+  },
+  "contributes": {
+    "languages": [
+      {
+        "id": "page-tui-yaml",
+        "aliases": [
+          "Page TUI YAML",
+          "page-tui"
+        ],
+        "extensions": [
+          ".page.yaml",
+          ".page.yml"
+        ],
+        "filenames": [
+          "page-tui.yaml",
+          "page-tui.yml"
+        ],
+        "filenamePatterns": [
+          "**/app.yaml",
+          "**/app.yml",
+          "**/ui/pages/**/*.yaml",
+          "**/ui/pages/**/*.yml"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "page-tui-yaml",
+        "scopeName": "source.yaml.page-tui",
+        "path": "./syntaxes/page-tui-yaml.tmLanguage.json",
+        "embeddedLanguages": {
+          "meta.embedded.block.yaml": "yaml"
+        }
+      }
+    ],
+    "yamlValidation": [
+      {
+        "fileMatch": [
+          "**/app.yaml",
+          "**/app.yml",
+          "**/ui/pages/**/*.yaml",
+          "**/ui/pages/**/*.yml",
+          "**/*.page.yaml",
+          "**/*.page.yml"
+        ],
+        "url": "./schemas/page-tui.schema.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "page-tui-yaml",
+        "path": "./snippets/page-tui-yaml.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "pageTui.createStarter",
+        "title": "Page TUI: 创建初学者页面"
+      },
+      {
+        "command": "pageTui.insertTemplate",
+        "title": "Page TUI: 插入页面模板"
+      },
+      {
+        "command": "pageTui.validate",
+        "title": "Page TUI: 校验当前页面"
+      },
+      {
+        "command": "pageTui.setLanguage",
+        "title": "Page TUI: 将当前文件设为 Page TUI YAML"
+      },
+      {
+        "command": "pageTui.run",
+        "title": "Page TUI: 运行当前项目"
+      },
+      {
+        "command": "pageTui.openDocs",
+        "title": "Page TUI: 打开中文文档"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "pageTui.createStarter"
+        },
+        {
+          "command": "pageTui.insertTemplate",
+          "when": "editorLangId == page-tui-yaml"
+        },
+        {
+          "command": "pageTui.validate",
+          "when": "editorLangId == page-tui-yaml"
+        },
+        {
+          "command": "pageTui.setLanguage"
+        },
+        {
+          "command": "pageTui.run",
+          "when": "workspaceFolderCount > 0"
+        },
+        {
+          "command": "pageTui.openDocs"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "pageTui.validate",
+          "when": "editorLangId == page-tui-yaml",
+          "group": "navigation@1"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Page TUI",
+      "properties": {
+        "pageTui.autoValidate": {
+          "type": "boolean",
+          "default": true,
+          "description": "编辑 Page TUI YAML 时自动显示结构和动作诊断。"
+        },
+        "pageTui.runCommand": {
+          "type": "string",
+          "default": "npm start",
+          "description": "执行“Page TUI: 运行当前项目”时发送到终端的命令。"
+        },
+        "pageTui.docsUrl": {
+          "type": "string",
+          "default": "https://github.com/xingguangcuican6666/page-tui/tree/main/docs",
+          "description": "命令面板中打开的 Page TUI 文档地址。"
+        }
+      }
+    }
+  }
+}

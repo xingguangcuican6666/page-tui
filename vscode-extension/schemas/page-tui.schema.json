@@ -1,0 +1,361 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/xingguangcuican6666/page-tui/blob/main/vscode-extension/schemas/page-tui.schema.json",
+  "title": "Page TUI manifest",
+  "description": "Page TUI YAML manifest and page definition.",
+  "type": "object",
+  "properties": {
+    "initial": {
+      "type": "string",
+      "description": "应用启动时打开的页面名称。"
+    },
+    "data": {
+      "type": "object",
+      "description": "所有页面共享的数据。"
+    },
+    "pages": {
+      "type": "object",
+      "description": "页面注册表。",
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "string",
+            "description": "相对于当前 manifest 的独立 YAML 页面文件路径。"
+          },
+          {
+            "$ref": "#/definitions/page"
+          }
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "value": {
+      "description": "固定值、变量绑定、模板或嵌套对象。",
+      "oneOf": [
+        {
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "null"
+          ]
+        },
+        {
+          "type": "object"
+        },
+        {
+          "type": "array"
+        }
+      ]
+    },
+    "style": {
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "fg": {
+              "type": "string"
+            },
+            "bg": {
+              "type": "string"
+            },
+            "bold": {
+              "type": "boolean"
+            },
+            "dim": {
+              "type": "boolean"
+            },
+            "italic": {
+              "type": "boolean"
+            },
+            "underline": {
+              "type": "boolean"
+            },
+            "inverse": {
+              "type": "boolean"
+            },
+            "when": {},
+            "condition": {},
+            "value": {},
+            "else": {}
+          },
+          "additionalProperties": true
+        }
+      ]
+    },
+    "layout": {
+      "oneOf": [
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/layout"
+          }
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "text",
+                "input",
+                "column",
+                "row",
+                "panel",
+                "list",
+                "divider",
+                "spacer"
+              ]
+            },
+            "value": {
+              "$ref": "#/definitions/value"
+            },
+            "bind": {
+              "type": "string"
+            },
+            "template": {
+              "type": "string"
+            },
+            "visible": {},
+            "children": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/layout"
+              }
+            },
+            "child": {
+              "$ref": "#/definitions/layout"
+            },
+            "items": {
+              "$ref": "#/definitions/value"
+            },
+            "selected": {
+              "$ref": "#/definitions/value"
+            },
+            "label": {
+              "$ref": "#/definitions/value"
+            },
+            "description": {
+              "$ref": "#/definitions/value"
+            },
+            "style": {
+              "$ref": "#/definitions/style"
+            },
+            "padding": {
+              "$ref": "#/definitions/value"
+            },
+            "gap": {
+              "type": [
+                "number",
+                "string"
+              ]
+            },
+            "flex": {
+              "type": [
+                "boolean",
+                "number"
+              ]
+            },
+            "title": {
+              "$ref": "#/definitions/value"
+            },
+            "border": {
+              "type": [
+                "boolean",
+                "string"
+              ]
+            },
+            "borderStyle": {
+              "type": "string"
+            },
+            "titleStyle": {
+              "type": "string"
+            },
+            "marker": {
+              "type": "string"
+            },
+            "normalMarker": {
+              "type": "string"
+            },
+            "selectedStyle": {
+              "type": "string"
+            },
+            "itemStyle": {
+              "type": "string"
+            },
+            "disabledStyle": {
+              "type": "string"
+            },
+            "emptyText": {
+              "type": "string"
+            },
+            "emptyStyle": {
+              "type": "string"
+            },
+            "height": {
+              "type": [
+                "number",
+                "string"
+              ]
+            },
+            "lines": {
+              "type": [
+                "number",
+                "string"
+              ]
+            },
+            "character": {
+              "type": "string"
+            },
+            "cursor": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": true
+        }
+      ]
+    },
+    "actionList": {
+      "oneOf": [
+        {
+          "$ref": "#/definitions/action"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/action"
+          }
+        }
+      ]
+    },
+    "action": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "pop",
+            "refresh",
+            "quit"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "do": {
+              "type": "string"
+            },
+            "set": {
+              "$ref": "#/definitions/value"
+            },
+            "move": {
+              "$ref": "#/definitions/value"
+            },
+            "toggle": {
+              "$ref": "#/definitions/value"
+            },
+            "remove": {
+              "$ref": "#/definitions/value"
+            },
+            "append": {
+              "$ref": "#/definitions/value"
+            },
+            "backspace": {
+              "$ref": "#/definitions/value"
+            },
+            "push": {
+              "$ref": "#/definitions/value"
+            },
+            "go": {
+              "$ref": "#/definitions/value"
+            },
+            "replace": {
+              "$ref": "#/definitions/value"
+            },
+            "reset": {
+              "$ref": "#/definitions/value"
+            },
+            "pop": {
+              "$ref": "#/definitions/value"
+            },
+            "quit": {
+              "$ref": "#/definitions/value"
+            },
+            "call": {
+              "$ref": "#/definitions/value"
+            },
+            "refresh": {
+              "$ref": "#/definitions/value"
+            },
+            "notify": {
+              "$ref": "#/definitions/value"
+            },
+            "if": {
+              "$ref": "#/definitions/ifAction"
+            },
+            "then": {
+              "$ref": "#/definitions/actionList"
+            }
+          },
+          "additionalProperties": true
+        }
+      ]
+    },
+    "ifAction": {
+      "type": "object",
+      "properties": {
+        "condition": {},
+        "then": {
+          "$ref": "#/definitions/actionList"
+        },
+        "else": {
+          "$ref": "#/definitions/actionList"
+        }
+      },
+      "required": [
+        "condition"
+      ],
+      "additionalProperties": true
+    },
+    "page": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "title": {
+          "$ref": "#/definitions/value"
+        },
+        "state": {
+          "type": "object"
+        },
+        "layout": {
+          "$ref": "#/definitions/layout"
+        },
+        "keys": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/actionList"
+          }
+        },
+        "on": {
+          "type": "object",
+          "properties": {
+            "enter": {
+              "$ref": "#/definitions/actionList"
+            },
+            "resume": {
+              "$ref": "#/definitions/actionList"
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

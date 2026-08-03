@@ -1,0 +1,46 @@
+{
+  "name": "Page TUI YAML",
+  "scopeName": "source.yaml.page-tui",
+  "patterns": [
+    {
+      "include": "source.yaml"
+    },
+    {
+      "name": "comment.line.number-sign.page-tui",
+      "match": "#.*$"
+    },
+    {
+      "name": "entity.name.section.page-tui",
+      "match": "^\\s*(initial|data|pages|title|state|layout|keys|on|params|children|child|items|selected|label|description|visible|style|services|refresh|value|bind|template|padding|gap|flex|border|emptyText):(?=\\s|$)"
+    },
+    {
+      "name": "support.type.component.page-tui",
+      "match": "^\\s*type:\\s*(text|input|column|row|panel|list|divider|spacer)\\s*$",
+      "captures": {
+        "1": {
+          "name": "support.type.component.page-tui"
+        }
+      }
+    },
+    {
+      "name": "support.function.action.page-tui",
+      "match": "^\\s*-?\\s*(set|move|toggle|remove|append|backspace|push|go|replace|reset|pop|quit|call|refresh|notify|if)(?=\\s*:|\\s*$)"
+    },
+    {
+      "name": "keyword.control.key.page-tui",
+      "match": "^\\s*(up|down|left|right|enter|escape|space|backspace|character|q|n|d)(?=\\s*:)"
+    },
+    {
+      "name": "variable.other.path.page-tui",
+      "match": "\\b(data|state|params|page|item|key|index|app)(?:\\.[A-Za-z0-9_-]+|\\[[0-9]+\\])*"
+    },
+    {
+      "name": "string.interpolated.page-tui",
+      "match": "\\{\\{[^}]+\\}\\}"
+    },
+    {
+      "name": "constant.language.style.page-tui",
+      "match": "\\b(title|primary|selected|muted|border|success|warning|danger|input)\\b"
+    }
+  ]
+}

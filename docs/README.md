@@ -24,6 +24,7 @@
 10. [10 - 内部架构](./10-architecture.md)
 11. [11 - 常见问题与排错](./11-troubleshooting.md)
 12. [12 - 完整项目模板](./12-full-example.md)
+13. [13 - VS Code 扩展](./13-vscode-extension.md)
 
 ## 最重要的心智模型
 
@@ -96,6 +97,7 @@ const { createApp, Page, ui } = require("page-tui");
 - 主题和 ANSI 样式
 - 页面栈生命周期
 - 非 TTY 输出和交互式终端
+- VS Code 扩展：补全、悬停说明、页面校验、模板和运行命令
 
 ## 当前实现的边界
 
@@ -135,3 +137,4 @@ npm test
 
 - [10 - 内部架构](./10-architecture.md)
 - [09 - 高级 JavaScript API](./09-advanced-api.md)
+- [13 - VS Code 扩展](./13-vscode-extension.md)

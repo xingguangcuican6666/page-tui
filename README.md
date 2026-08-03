@@ -23,9 +23,11 @@ npm start
 
 ## 超详细文档
 
-完整中文文档从安装、页面模型、布局、变量、动作、页面栈、Service、组件、高级 API、内部架构、排错到完整项目模板，共 12 章：
+完整中文文档从安装、页面模型、布局、变量、动作、页面栈、Service、组件、高级 API、内部架构、排错、完整项目模板到 VS Code 扩展，共 13 章：
 
 [打开完整文档目录](docs/README.md)
+
+如果你主要用 VS Code 写页面，可以直接使用仓库内的扩展：[vscode-extension/README.md](vscode-extension/README.md)。
 
 ## 页面模型
 

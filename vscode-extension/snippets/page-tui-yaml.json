@@ -1,0 +1,201 @@
+{
+  "Page TUI：完整初学者页面": {
+    "prefix": "page",
+    "description": "创建一个包含 data、首页、详情页和新建页的 Page TUI 页面",
+    "body": [
+      "initial: home",
+      "",
+      "data:",
+      "  ${1:items}:",
+      "    - ${2:title}: \"${3:第一项}\"",
+      "      ${4:done}: false",
+      "",
+      "pages:",
+      "  home:",
+      "    title: \"${5:首页}\"",
+      "    state:",
+      "      selected: 0",
+      "      notice: \"\"",
+      "    layout:",
+      "      type: column",
+      "      padding: [1, 2]",
+      "      children:",
+      "        - type: text",
+      "          value: \"${6:页面标题}\"",
+      "          style: title",
+      "        - type: panel",
+      "          title: \"${7:列表}\"",
+      "          flex: true",
+      "          child:",
+      "            type: list",
+      "            items: data.${1:items}",
+      "            selected: state.selected",
+      "            label: \"{{ item.${2:title} }}\"",
+      "        - type: text",
+      "          bind: state.notice",
+      "          visible: state.notice",
+      "          style: success",
+      "        - type: text",
+      "          value: \"↑/↓ 选择   Enter 打开   q 退出\"",
+      "          style: muted",
+      "    keys:",
+      "      up:",
+      "        - move:",
+      "            path: state.selected",
+      "            by: -1",
+      "            list: data.${1:items}",
+      "      down:",
+      "        - move:",
+      "            path: state.selected",
+      "            by: 1",
+      "            list: data.${1:items}",
+      "      enter:",
+      "        - push:",
+      "            page: detail",
+      "            params:",
+      "              item:",
+      "                itemAt:",
+      "                  list: data.${1:items}",
+      "                  index: state.selected",
+      "",
+      "  detail:",
+      "    title: \"详情\"",
+      "    layout:",
+      "      type: column",
+      "      padding: [1, 2]",
+      "      children:",
+      "        - type: text",
+      "          value: \"详情页面\"",
+      "          style: title",
+      "        - type: text",
+      "          template: \"${2:title}：{{ params.item.${2:title} }}\"",
+      "        - type: text",
+      "          value: \"Esc 返回\"",
+      "          style: muted",
+      "    keys:",
+      "      escape:",
+      "        - pop",
+      "",
+      "${0}"
+    ]
+  },
+  "Page TUI：垂直布局": {
+    "prefix": "column",
+    "description": "插入 column 垂直布局",
+    "body": [
+      "type: column",
+      "padding: [${1:1}, ${2:2}]",
+      "gap: ${3:0}",
+      "children:",
+      "  - type: text",
+      "    value: \"${4:标题}\"",
+      "    style: title",
+      "  - ${0}"
+    ]
+  },
+  "Page TUI：面板列表": {
+    "prefix": "panel-list",
+    "description": "插入一个可伸缩的列表面板",
+    "body": [
+      "type: panel",
+      "title: \"${1:列表}\"",
+      "flex: true",
+      "child:",
+      "  type: list",
+      "  items: ${2:data.items}",
+      "  selected: ${3:state.selected}",
+      "  label: \"{{ item.${4:title} }}\"",
+      "  description: \"{{ item.${5:description} }}\"",
+      "  emptyText: \"${6:暂无内容}\""
+    ]
+  },
+  "Page TUI：文本输入": {
+    "prefix": "input",
+    "description": "插入 input 和 character/backspace 按键",
+    "body": [
+      "state:",
+      "  ${1:title}: \"\"",
+      "",
+      "layout:",
+      "  type: input",
+      "  bind: state.${1:title}",
+      "  placeholder: \"${2:请输入内容}\"",
+      "",
+      "keys:",
+      "  character:",
+      "    - append:",
+      "        path: state.${1:title}",
+      "        value:",
+      "          bind: key.value",
+      "  backspace:",
+      "    - backspace:",
+      "        path: state.${1:title}"
+    ]
+  },
+  "Page TUI：移动选择": {
+    "prefix": "move",
+    "description": "插入上下移动选择动作",
+    "body": [
+      "${1:down}:",
+      "  - move:",
+      "      path: ${2:state.selected}",
+      "      by: ${3:1}",
+      "      list: ${4:data.items}"
+    ]
+  },
+  "Page TUI：打开页面": {
+    "prefix": "push",
+    "description": "插入 push 页面动作",
+    "body": [
+      "- push:",
+      "    page: ${1:detail}",
+      "    params:",
+      "      ${2:item}:",
+      "        itemAt:",
+      "          list: ${3:data.items}",
+      "          index: ${4:state.selected}",
+      "${0}"
+    ]
+  },
+  "Page TUI：设置变量": {
+    "prefix": "set",
+    "description": "插入 set 动作",
+    "body": [
+      "- set:",
+      "    path: ${1:state.notice}",
+      "    value: ${2:操作成功}"
+    ]
+  },
+  "Page TUI：条件动作": {
+    "prefix": "if",
+    "description": "插入 if 条件动作",
+    "body": [
+      "- if:",
+      "    condition:",
+      "      notEmpty: ${1:state.title}",
+      "    then:",
+      "      - ${2:pop}",
+      "    else:",
+      "      - set:",
+      "          path: ${3:state.error}",
+      "          value: ${4:请输入内容}"
+    ]
+  },
+  "Page TUI：调用 Service": {
+    "prefix": "call",
+    "description": "插入白名单 service 调用",
+    "body": [
+      "- call: ${1:tasks.save}",
+      "  with:",
+      "    ${2:title}:",
+      "      bind: ${3:state.title}"
+    ]
+  },
+  "Page TUI：模板变量": {
+    "prefix": "template",
+    "description": "插入 Page TUI 模板表达式",
+    "body": [
+      "{{ ${1:data.value} }}${0}"
+    ]
+  }
+}

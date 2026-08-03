@@ -13,6 +13,8 @@
   },
   "scripts": {
     "start": "node examples/easy-tasks.js",
-    "test": "node --test"
+    "test": "node --test",
+    "test:extension": "npm --prefix vscode-extension test",
+    "package:extension": "npm --prefix vscode-extension run package"
   }
 }
