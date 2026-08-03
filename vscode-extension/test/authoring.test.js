@@ -75,6 +75,15 @@ test("实时预览命令已注册", () => {
   );
 });
 
+test("root fields are suggested while typing data", () => {
+  const document = documentFrom(["da"], "page-tui-yaml");
+  const items = provideCompletions(document, { line: 0, character: 2 });
+  const data = items.find((item) => item.label === "data");
+  assert.ok(data);
+  assert.equal(data.insertText.value, "data:");
+  assert.equal(data.detail, "Page TUI · Page TUI manifest");
+});
+
 test("page fields are suggested on an empty page line", () => {
   const document = documentFrom([
     "pages:",

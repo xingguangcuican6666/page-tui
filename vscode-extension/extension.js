@@ -50,6 +50,7 @@ const COMPONENTS = ["text", "input", "column", "row", "panel", "list", "divider"
 const KEY_NAMES = ["up", "down", "left", "right", "enter", "escape", "space", "backspace", "character"];
 const STYLES = ["title", "primary", "selected", "muted", "border", "success", "warning", "danger", "input"];
 const PAGE_FIELDS = ["title", "state", "layout", "keys", "on"];
+const ROOT_FIELDS = ["initial", "data", "pages"];
 const LAYOUT_FIELDS = ["type", "children", "child", "value", "bind", "template", "visible", "style", "padding", "gap", "flex"];
 const KEY_TRIGGER_CHARACTERS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
 const COMPONENT_FIELDS = {
@@ -186,7 +187,7 @@ function structuralFields(document, lineNumber) {
   if (keys.includes("layout")) return LAYOUT_FIELDS;
   if (keys.includes("pages") && stack.some((item) => item.indent > 0)) return PAGE_FIELDS;
   if (keys.includes("children")) return ["type"];
-  if (keys.length === 0) return ["initial", "data", "pages"];
+  if (keys.length === 0) return ROOT_FIELDS;
   return [];
 }
 
@@ -195,6 +196,18 @@ function fieldCompletions(fields) {
     name,
     vscode.CompletionItemKind.Property,
     "Page TUI 字段",
+    name + ":"
+  ));
+}
+
+function rootFieldCompletions(document, position) {
+  const before = lineBefore(document, position);
+  if (!/^\s*[A-Za-z0-9_-]*$/.test(before)) return [];
+  if (syntaxStack(document, position.line).length > 0) return [];
+  return ROOT_FIELDS.map((name) => completion(
+    name,
+    vscode.CompletionItemKind.Property,
+    "Page TUI manifest",
     name + ":"
   ));
 }
@@ -233,6 +246,11 @@ function provideCompletions(document, position) {
   const before = lineBefore(document, position);
   const prefixMatch = before.match(/[A-Za-z0-9_.-]*$/);
   const prefix = prefixMatch ? prefixMatch[0] : "";
+
+  // 根节点不能依赖 YAML 解析结果：用户刚输入 `da` 时，文档暂时还不是合法对象。
+  const rootFields = rootFieldCompletions(document, position);
+  if (rootFields.length) return rootFields;
+
   if (/\btype:\s*[A-Za-z0-9_-]*$/.test(before)) {
     return COMPONENTS.map((name) => completion(
       name,
@@ -294,15 +312,6 @@ function provideCompletions(document, position) {
 
   const fields = structuralFields(document, position.line);
   if (fields.length) return fieldCompletions(fields);
-
-  if (position.line === 0 && /^\s*[A-Za-z0-9_-]*$/.test(before)) {
-    return ["initial:", "data:", "pages:"].map((name) => completion(
-      name,
-      vscode.CompletionItemKind.Property,
-      "Page TUI manifest",
-      name
-    ));
-  }
 
   if (prefix.length > 0 && ROOT_HELP[prefix]) {
     return [completion(prefix, vscode.CompletionItemKind.Variable, ROOT_HELP[prefix][0], prefix)];
