@@ -26,7 +26,15 @@ pages:
       value: "设置页"
 ~~~
 
-页面名称就是 push、replace、reset 中使用的 page 名称。
+页面名称就是 push、replace、reset 中使用的 page 名称。目标可以直接写页面名，也可以用变量值：
+
+~~~yaml
+- push:
+    page:
+      bind: state.nextPage
+~~~
+
+`page` 或 `route` 会在跳转前解析；解析后的值仍必须是已注册的页面名称。
 
 ## 2. initial：启动页
 

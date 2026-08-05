@@ -1,6 +1,10 @@
 const YAML = require("yaml");
 
-const COMPONENTS = new Set(["text", "input", "column", "row", "panel", "list", "divider", "spacer"]);
+const COMPONENTS = new Set(["text", "input", "column", "row", "panel", "list", "divider", "spacer", "popup", "progress"]);
+
+function isObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -69,7 +73,7 @@ function splitPath(value) {
 
 function isPathReference(value) {
   if (typeof value !== "string") return false;
-  return /^(data|state|params|page|item|key|index|app)(\.|$)/.test(value.trim().replace(/^\$/, ""));
+  return /^(data|state|params|page|item|key|index|app|env)(\.|$)/.test(value.trim().replace(/^\$/, ""));
 }
 
 function readPath(path, context) {
@@ -85,7 +89,8 @@ function readPath(path, context) {
     item: context.item,
     key: context.key,
     index: context.index,
-    app: context.app
+    app: context.app,
+    env: context.runtime?.env
   };
   let value = roots[rootName];
   if (value === undefined) return undefined;
@@ -105,6 +110,85 @@ function readReference(value, context) {
   return value;
 }
 
+function lookupTranslationPath(value, key) {
+  if (!isObject(value) && !Array.isArray(value)) return undefined;
+  if (Object.prototype.hasOwnProperty.call(value, key)) return value[key];
+  let current = value;
+  for (const part of splitPath(key)) {
+    if (current == null || !Object.prototype.hasOwnProperty.call(current, part)) return undefined;
+    current = current[part];
+  }
+  return current;
+}
+
+function localeCandidates(locale, fallback) {
+  const result = [];
+  const add = (value) => {
+    if (typeof value !== "string" || !value.trim() || result.includes(value)) return;
+    result.push(value);
+    const base = value.split(value.includes("-") ? "-" : "_")[0];
+    if (base && !result.includes(base)) result.push(base);
+  };
+  add(locale);
+  add(fallback);
+  return result;
+}
+
+function resolveLocaleSpec(spec, context) {
+  if (isObject(spec)) {
+    if (Object.hasOwn(spec, "bind")) return readPath(spec.bind, context);
+    if (Object.hasOwn(spec, "value")) return spec.value;
+  }
+  if (typeof spec === "string" && isPathReference(spec)) return readPath(spec, context);
+  if (typeof spec === "string" && spec.startsWith("$") && isPathReference(spec.slice(1))) {
+    return readPath(spec.slice(1), context);
+  }
+  return spec;
+}
+
+function createPreviewI18n(definition = {}, externalLocales = {}) {
+  const config = isObject(definition) ? definition : {};
+  const sources = config.locales || config.files || config.sources;
+  const locales = {};
+  for (const [locale, source] of Object.entries(isObject(sources) ? sources : {})) {
+    if (isObject(source)) locales[locale] = source;
+    else if (isObject(externalLocales[locale])) locales[locale] = externalLocales[locale];
+  }
+  const fallback = config.fallback || config.default || Object.keys(locales)[0];
+  const localeSpec = config.locale ?? config.language;
+  return {
+    translate(key, context = {}) {
+      const selected = resolveLocaleSpec(localeSpec, context);
+      const locale = selected == null || selected === "" ? fallback : String(selected);
+      for (const candidate of localeCandidates(locale, fallback)) {
+        const message = lookupTranslationPath(locales[candidate], String(key));
+        if (message !== undefined) return message;
+      }
+      return String(key ?? "");
+    }
+  };
+}
+
+function isTranslationSpec(value) {
+  return isObject(value) && (Object.hasOwn(value, "t") || Object.hasOwn(value, "i18n"));
+}
+
+function translateSpec(spec, context) {
+  const key = resolveValue(spec.t ?? spec.i18n, context);
+  if (key == null || key === "") return "";
+  const values = spec.with === undefined && spec.params === undefined
+    ? undefined
+    : resolveValue(spec.with ?? spec.params, context);
+  const nextContext = isObject(values)
+    ? { ...context, params: { ...(context.params || {}), ...values } }
+    : context;
+  const translated = context.runtime?.i18n?.translate
+    ? context.runtime.i18n.translate(key, context)
+    : key;
+  if (typeof translated === "string") return renderTemplate(translated, nextContext);
+  return resolveValue(translated, nextContext);
+}
+
 function evaluateExpression(expression, context) {
   const input = String(expression).trim();
   const literal = parseLiteral(input);
@@ -114,6 +198,8 @@ function evaluateExpression(expression, context) {
   if (call) {
     const args = splitArguments(call[2]).map((argument) => evaluateExpression(argument, context));
     switch (call[1]) {
+      case "t":
+        return translateSpec({ t: args[0] }, context);
       case "if":
         return evaluateCondition(args[0], context) ? args[1] : args[2];
       case "count":
@@ -147,6 +233,7 @@ function renderTemplate(template, context) {
 function resolveValue(value, context) {
   if (Array.isArray(value)) return value.map((item) => resolveValue(item, context));
   if (value && typeof value === "object") {
+    if (isTranslationSpec(value)) return translateSpec(value, context);
     if (Object.hasOwn(value, "bind")) return readPath(value.bind, context);
     if (Object.hasOwn(value, "template")) return renderTemplate(value.template, context);
     if (Object.hasOwn(value, "itemAt")) {
@@ -163,10 +250,21 @@ function resolveValue(value, context) {
     return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, resolveValue(item, context)]));
   }
   if (typeof value === "string" && value.includes("{{")) return renderTemplate(value, context);
+  if (typeof value === "string" && isPathReference(value)) return readPath(value, context);
   if (typeof value === "string" && value.startsWith("$") && isPathReference(value.slice(1))) {
     return readPath(value.slice(1), context);
   }
   return value;
+}
+
+function resolveNavigation(config, context) {
+  if (!config || typeof config !== "object" || Array.isArray(config)) {
+    return { page: resolveValue(config, context), params: {} };
+  }
+  return {
+    page: resolveValue(config.page ?? config.route, context),
+    params: resolveValue(config.params || {}, context)
+  };
 }
 
 function evaluateCondition(condition, context) {
@@ -270,7 +368,9 @@ function renderNode(node, context) {
         : renderTextSpec(node.value, context);
       const inputPath = typeof node.bind === "string" ? ` data-preview-input="${escapeHtml(node.bind)}"` : "";
       const className = value ? "input-value" : "input-placeholder";
-      return `<input type="text" class="${componentClass(type, node, context)} ${className}"${styleAttribute(componentStyle(node))}${inputPath} value="${escapeHtml(value)}" placeholder="${escapeHtml(node.placeholder || "")}" spellcheck="false">`;
+      const placeholder = node.placeholder === undefined ? "" : renderTextSpec(node.placeholder, context);
+      const inputType = node.mask ? "password" : "text";
+      return `<input type="${inputType}" class="${componentClass(type, node, context)} ${className}"${styleAttribute(componentStyle(node))}${inputPath} value="${escapeHtml(value)}" placeholder="${escapeHtml(placeholder)}" spellcheck="false">`;
     }
     case "divider": {
       const character = String(node.character || "─").repeat(80).slice(0, 80);
@@ -290,11 +390,36 @@ function renderNode(node, context) {
       const title = node.title === undefined ? "" : renderTextSpec(node.title, context);
       return `<section class="${componentClass(type, node, context)}"${styleAttribute(componentStyle(node))}>${title ? `<div class="panel-title">${escapeHtml(title)}</div>` : ""}<div class="panel-body">${renderNode(child, context)}</div></section>`;
     }
+    case "popup": {
+      const hasChildren = Array.isArray(node.children) && node.children.length > 0;
+      const child = node.child !== undefined
+        ? node.child
+        : hasChildren
+          ? { type: "column", children: node.children }
+          : { type: "text", value: node.message ?? node.value ?? "" };
+      const title = node.title === undefined ? "" : renderTextSpec(node.title, context);
+      const width = Number(node.width);
+      const popupStyle = Number.isFinite(width) && width > 0 ? ` style="max-width:${Math.max(16, width)}ch"` : "";
+      return `<div class="${componentClass(type, node, context)}"><section class="popup-card"${popupStyle}>${title ? `<div class="panel-title">${escapeHtml(title)}</div>` : ""}<div class="panel-body">${renderNode(child, context)}</div></section></div>`;
+    }
+    case "progress": {
+      const rawValue = node.bind !== undefined
+        ? readReference(node.bind, context)
+        : readReference(node.value ?? 0, context);
+      const rawMax = readReference(node.max ?? 100, context);
+      const max = Number.isFinite(Number(rawMax)) && Number(rawMax) > 0 ? Number(rawMax) : 100;
+      const value = Math.max(0, Math.min(max, Number(rawValue) || 0));
+      const percent = Math.round(value / max * 100);
+      const label = node.label === undefined ? "" : renderTextSpec(node.label, context);
+      const showValue = node.showValue === undefined || readReference(node.showValue, context) !== false;
+      return `<div class="${componentClass(type, node, context)}"${styleAttribute(componentStyle(node))}>${label ? `<span class="progress-label">${escapeHtml(label)}</span>` : ""}<span class="progress-track"><span class="progress-fill" style="width:${percent}%"></span></span>${showValue ? `<span class="progress-value">${percent}%</span>` : ""}</div>`;
+    }
     case "list": {
       const values = readReference(node.items !== undefined ? node.items : node.bind, context);
       const items = Array.isArray(values) ? values : [];
       if (!items.length) {
-        return `<div class="${componentClass(type, node, context)}"${styleAttribute(componentStyle(node))}><div class="list-empty">${escapeHtml(node.emptyText || "暂无内容")}</div></div>`;
+        const emptyText = node.emptyText === undefined ? "暂无内容" : renderTextSpec(node.emptyText, context);
+        return `<div class="${componentClass(type, node, context)}"${styleAttribute(componentStyle(node))}><div class="list-empty">${escapeHtml(emptyText)}</div></div>`;
       }
       const selected = Math.max(0, Math.min(items.length - 1, Number(readReference(node.selected, context) ?? 0)));
       const body = items.map((item, index) => {
@@ -346,7 +471,8 @@ function writePath(path, value, context) {
     data: context.data,
     state: context.state,
     params: context.params,
-    page: context.params
+    page: context.params,
+    env: context.runtime?.env
   };
   const root = roots[rootName];
   if (!root || !parts.length) return false;
@@ -377,7 +503,7 @@ function errorBody(message) {
   return `<div class="preview-error-card"><strong>预览暂时无法更新</strong><pre>${escapeHtml(message)}</pre><p>修正 YAML 后，预览会自动恢复。</p></div>`;
 }
 
-function renderDocument(document, requestedPage, overrides = {}) {
+function renderDocument(document, requestedPage, overrides = {}, options = {}) {
   const normalized = normalizeDocument(document);
   const pageNames = Object.keys(normalized.pages);
   if (!pageNames.length) {
@@ -413,6 +539,10 @@ function renderDocument(document, requestedPage, overrides = {}) {
     state: Object.hasOwn(overrides, "state") ? overrides.state : page.state || document.state || {},
     params: Object.hasOwn(overrides, "params") ? overrides.params : page.params || document.params || {},
     app: document,
+    runtime: overrides.runtime || {
+      i18n: options.i18n || createPreviewI18n(document.i18n, options.locales),
+      env: options.env || {}
+    },
     item: undefined,
     key: undefined,
     index: undefined
@@ -431,7 +561,7 @@ function renderDocument(document, requestedPage, overrides = {}) {
   };
 }
 
-function renderPreview(source, requestedPage) {
+function renderPreview(source, requestedPage, options = {}) {
   let document;
   try {
     document = YAML.parse(source) || {};
@@ -439,10 +569,10 @@ function renderPreview(source, requestedPage) {
     const message = `YAML 解析失败：${error.message}`;
     return { pageNames: [], pageName: "", body: errorBody(message), error: message, variables: {} };
   }
-  return renderDocument(document, requestedPage);
+  return renderDocument(document, requestedPage, {}, options);
 }
 
-function createPreviewSession(source, requestedPage) {
+function createPreviewSession(source, requestedPage, options = {}) {
   let document;
   let parseError;
   try {
@@ -453,13 +583,14 @@ function createPreviewSession(source, requestedPage) {
 
   if (parseError) {
     return {
-      dispatch: () => renderPreview(source, requestedPage),
-      model: () => renderPreview(source, requestedPage),
+      dispatch: () => renderPreview(source, requestedPage, options),
+      model: () => renderPreview(source, requestedPage, options),
       reset: () => undefined
     };
   }
 
   const normalized = normalizeDocument(document);
+  const i18n = options.i18n || createPreviewI18n(document.i18n, options.locales);
   const pageNames = Object.keys(normalized.pages);
   let pageName = requestedPage && pageNames.includes(requestedPage)
     ? requestedPage
@@ -468,6 +599,8 @@ function createPreviewSession(source, requestedPage) {
       : pageNames[0];
   const initialPageName = pageName;
   const initialData = cloneValue(normalized.data);
+  const initialEnvironment = cloneValue(options.env || {});
+  let environment = cloneValue(initialEnvironment);
   let state;
   let params;
   const stack = [];
@@ -490,6 +623,7 @@ function createPreviewSession(source, requestedPage) {
 
   function reset() {
     normalized.data = cloneValue(initialData);
+    environment = cloneValue(initialEnvironment);
     stack.length = 0;
     pageName = initialPageName;
     if (pageName) loadPage(pageName);
@@ -501,6 +635,7 @@ function createPreviewSession(source, requestedPage) {
       state,
       params,
       app: document,
+      runtime: { i18n, env: environment },
       key,
       index
     };
@@ -568,15 +703,21 @@ function createPreviewSession(source, requestedPage) {
           break;
         }
         case "push":
-        case "go":
-          openPage(config?.page || config?.route, resolveValue(config?.params || {}, context), "push");
+        case "go": {
+          const { page, params } = resolveNavigation(config, context);
+          openPage(page, params, "push");
           break;
-        case "replace":
-          openPage(config?.page || config?.route, resolveValue(config?.params || {}, context), "replace");
+        }
+        case "replace": {
+          const { page, params } = resolveNavigation(config, context);
+          openPage(page, params, "replace");
           break;
-        case "reset":
-          openPage(config?.page || config?.route, resolveValue(config?.params || {}, context), "reset");
+        }
+        case "reset": {
+          const { page, params } = resolveNavigation(config, context);
+          openPage(page, params, "reset");
           break;
+        }
         case "pop":
           if (stack.length) {
             const previous = stack.pop();
@@ -602,8 +743,13 @@ function createPreviewSession(source, requestedPage) {
   }
 
   function model() {
-    if (!pageName) return renderDocument(document, requestedPage);
-    return renderDocument(document, pageName, { data: normalized.data, state, params });
+    if (!pageName) return renderDocument(document, requestedPage, {}, { i18n });
+    return renderDocument(document, pageName, {
+      data: normalized.data,
+      state,
+      params,
+      runtime: { i18n, env: environment }
+    }, { i18n });
   }
 
   function dispatch(event = {}) {
@@ -679,6 +825,13 @@ body { margin: 0; padding: 16px; color: #d7e0e5; background: #11181d; font-famil
 .panel-title { padding: 4px 10px; color: #78dce9; border-bottom: 1px solid #33434b; background: #142027; }
 .panel-body { padding: 8px 10px; }
 .component-panel.is-flex { min-height: 100px; }
+.component-popup { display: flex; justify-content: center; align-items: center; min-height: 13rem; padding: 1rem; }
+.popup-card { width: min(100%, 34rem); border: 1px solid #6a7b83; border-radius: 6px; overflow: hidden; background: #101a20; box-shadow: 0 18px 48px rgba(0, 0, 0, .35); }
+.component-progress { display: flex; align-items: center; gap: 8px; min-height: 1.55em; }
+.progress-label { flex: 0 0 auto; }
+.progress-track { flex: 1 1 auto; min-width: 5rem; height: .72em; overflow: hidden; border: 1px solid #53656e; background: #172229; }
+.progress-fill { display: block; height: 100%; background: #63d2df; }
+.progress-value { flex: 0 0 4ch; text-align: right; color: #9fb1b9; }
 .component-list { display: flex; flex-direction: column; }
 .list-item { display: flex; gap: 8px; min-height: 1.55em; padding: 2px 6px; border-radius: 3px; }
 .list-item.is-selected { color: #081216; background: #63d2df; font-weight: 700; }
@@ -858,6 +1011,7 @@ vscode.postMessage({ type: "ready" });
 
 module.exports = {
   createPreviewHtml,
+  createPreviewI18n,
   createPreviewSession,
   escapeHtml,
   renderPreview

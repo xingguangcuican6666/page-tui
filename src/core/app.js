@@ -25,6 +25,13 @@ class App extends EventEmitter {
     this._lastError = null;
   }
 
+  _terminalHooks() {
+    return {
+      onKey: (key) => this.handleKey(key),
+      onResize: (size) => this.handleResize(size)
+    };
+  }
+
   get currentPage() {
     return this.pageManager.current;
   }
@@ -43,10 +50,7 @@ class App extends EventEmitter {
       await this.pageManager.reset(this.initialPage, this.initialParams);
     }
 
-    this.terminal.start({
-      onKey: (key) => this.handleKey(key),
-      onResize: (size) => this.handleResize(size)
-    });
+    this.terminal.start(this._terminalHooks());
     this.running = true;
     this.render();
     this.emit("start", this);
@@ -95,6 +99,22 @@ class App extends EventEmitter {
       })
       .catch((error) => this.handleError(error));
     return this._keyQueue;
+  }
+
+  async suspendTerminal(task) {
+    const shouldRestart = this.running && this.terminal.started;
+    if (shouldRestart) {
+      this.terminal.stop();
+    }
+
+    try {
+      return await task();
+    } finally {
+      if (shouldRestart && !this.closed) {
+        this.terminal.start(this._terminalHooks());
+        this.invalidate();
+      }
+    }
   }
 
   async _dispatchKey(key) {

@@ -3,6 +3,7 @@ const path = require("node:path");
 const YAML = require("yaml");
 const { createApp } = require("../core/app");
 const { cloneValue } = require("./value");
+const { loadI18n } = require("./i18n");
 const { DeclarativePage } = require("./page");
 
 function readDocument(filePath) {
@@ -33,12 +34,19 @@ function createDeclarativeApp(options = {}) {
   const loaded = loadManifest(options.manifest || options.definition);
   const document = loaded.document || {};
   const pages = loadPages(document, loaded.baseDir);
+  const i18n = loadI18n(options.i18n || document.i18n, loaded.baseDir, readDocument);
   const data = {
     ...cloneValue(document.data || {}),
     ...cloneValue(options.data || {})
   };
+  const configuredEnvironment = options.env && typeof options.env === "object" && !Array.isArray(options.env)
+    ? cloneValue(options.env)
+    : {};
+  const environment = { ...process.env, ...configuredEnvironment };
   const runtime = {
     data,
+    env: environment,
+    i18n,
     services: options.services || {},
     refresh: options.refresh
   };
@@ -54,6 +62,8 @@ function createDeclarativeApp(options = {}) {
     definition: _definition,
     data: _data,
     services: _services,
+    i18n: _i18n,
+    env: _env,
     refresh: _refresh,
     ...appOptions
   } = options;

@@ -1,0 +1,8 @@
+app:
+  title: Internationalization Example
+  heading: Page TUI External Language Modules
+  greeting: "Hello, {{ params.name }}"
+  current: Current language
+  choose: Choose interface language
+  placeholder: This placeholder follows the selected language
+  help: Use Up/Down to select, Enter to switch, and q to quit

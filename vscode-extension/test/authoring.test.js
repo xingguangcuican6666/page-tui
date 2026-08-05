@@ -95,6 +95,18 @@ test("可视化编辑器 custom editor 和命令已注册", () => {
   assert.match(extensionSource, /webviewOptions: \{ retainContextWhenHidden: false \}/);
 });
 
+test("工作流 Webview 资源会随扩展本地打包", () => {
+  const script = packageJson.scripts["build:webview"];
+  const javascript = path.join(extensionRoot, "media", "workflow-editor.js");
+  const stylesheet = path.join(extensionRoot, "media", "workflow-editor.css");
+
+  assert.equal(typeof script, "string");
+  assert.match(packageJson.scripts["vscode:prepublish"], /build:webview/);
+  assert.equal(fs.statSync(javascript).size > 1000, true);
+  assert.equal(fs.statSync(stylesheet).size > 100, true);
+  assert.match(extensionSource, /asWebviewUri/);
+});
+
 test("root fields are suggested while typing data", () => {
   const document = documentFrom(["da"], "page-tui-yaml");
   const items = provideCompletions(document, { line: 0, character: 2 });
@@ -103,6 +115,17 @@ test("root fields are suggested while typing data", () => {
   assert.equal(data.insertText.value, "data:");
   assert.equal(data.detail, "Page TUI · Page TUI manifest");
   assert.equal(data.filterText, "data");
+});
+
+test("language module fields are suggested", () => {
+  const rootDocument = documentFrom(["i1"]);
+  const rootItems = provideCompletions(rootDocument, { line: 0, character: 1 });
+  assert.equal(rootItems.some((item) => item.label === "i18n"), true);
+
+  const i18nDocument = documentFrom(["i18n:", "  lo"]);
+  const i18nItems = provideCompletions(i18nDocument, { line: 1, character: 4 });
+  assert.equal(i18nItems.some((item) => item.label === "locale"), true);
+  assert.equal(i18nItems.some((item) => item.label === "locales"), true);
 });
 
 test("manifest root does not suggest page-only keys", () => {

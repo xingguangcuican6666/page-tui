@@ -20,7 +20,7 @@ class Renderer {
       const frame = lines
         .map((line, index) => `\u001b[2K${line}${index === lines.length - 1 ? "" : "\n"}`)
         .join("");
-      this.output.write(`\u001b[H${frame}`);
+      this.output.write(`\u001b[H\u001b[2J${frame}`);
     } else {
       this.output.write(`${lines.join("\n")}\n`);
     }

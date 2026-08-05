@@ -1,0 +1,2040 @@
+initial: home
+
+data:
+  system:
+    lang: zh_CN.UTF-8
+    keymap: us
+  install:
+    mountPlan: []
+    hasRoot: false
+    hasBoot: false
+    partitionReady: false
+    newUser:
+      name: ""
+      password: ""
+    rootPassword: ""
+    rootPasswordSameAsUser: true
+    hostname: ""
+    userReady: false
+
+pages:
+  home:
+    title: 系统语言与键盘布局
+    state:
+      languages:
+        - label: 简体中文
+          lang: zh_CN.UTF-8
+        - label: English
+          lang: en_US.UTF-8
+        - label: 日本語
+          lang: ja_JP.UTF-8
+        - label: Deutsch
+          lang: de_DE.UTF-8
+      keymaps:
+        - label: 美国英语
+          keymap: us
+        - label: 德语
+          keymap: de
+        - label: 法语
+          keymap: fr
+        - label: 日语
+          keymap: jp
+        - label: 英国英语
+          keymap: uk
+      langSelected: 0
+      keymapSelected: 0
+      focus: lang
+      status: 请选择系统语言（LANG）
+      exitCode: null
+      applying: false
+      failed: false
+    layout:
+      type: column
+      children:
+        - type: panel
+          title: 系统语言与键盘布局
+          flex: true
+          child:
+            type: column
+            gap: 1
+            children:
+              - type: text
+                value: 请选择安装环境的语言和键盘布局
+              - type: text
+                value: "当前 LANG={{ data.system.lang }}   KEYMAP={{ data.system.keymap }}"
+              - type: text
+                value: 系统语言（LANG）
+                visible:
+                  all:
+                    - equals: [ state.focus, lang ]
+                    - equals: [ state.failed, false ]
+              - type: list
+                items: state.languages
+                selected: state.langSelected
+                label: "{{ item.label }} ({{ item.lang }})"
+                visible:
+                  all:
+                    - equals: [ state.focus, lang ]
+                    - equals: [ state.failed, false ]
+              - type: text
+                value: 键盘布局（KEYMAP）
+                visible:
+                  all:
+                    - equals: [ state.focus, keymap ]
+                    - equals: [ state.failed, false ]
+              - type: list
+                items: state.keymaps
+                selected: state.keymapSelected
+                label: "{{ item.label }} ({{ item.keymap }})"
+                visible:
+                  all:
+                    - equals: [ state.focus, keymap ]
+                    - equals: [ state.failed, false ]
+              - type: popup
+                title: 设置失败
+                width: 56
+                height: 8
+                visible: { equals: [ state.failed, true ] }
+                children:
+                  - type: text
+                    value: { bind: state.status }
+                  - type: text
+                    value: Enter 重试   Esc 返回
+              - type: text
+                value: { bind: state.status }
+                visible: { equals: [ state.failed, false ] }
+        - type: text
+          value: ↑/↓ 选择   Tab 切换   Enter 确认   q 退出   Esc 返回
+          style: muted
+    keys:
+      up:
+        - if:
+            condition:
+              any:
+                - equals: [ state.applying, true ]
+                - equals: [ state.failed, true ]
+            then: []
+            else:
+              - if:
+                  condition: { equals: [ state.focus, lang ] }
+                  then:
+                    - move:
+                        path: state.langSelected
+                        by: -1
+                        list: state.languages
+                  else:
+                    - move:
+                        path: state.keymapSelected
+                        by: -1
+                        list: state.keymaps
+      down:
+        - if:
+            condition:
+              any:
+                - equals: [ state.applying, true ]
+                - equals: [ state.failed, true ]
+            then: []
+            else:
+              - if:
+                  condition: { equals: [ state.focus, lang ] }
+                  then:
+                    - move:
+                        path: state.langSelected
+                        by: 1
+                        list: state.languages
+                  else:
+                    - move:
+                        path: state.keymapSelected
+                        by: 1
+                        list: state.keymaps
+      tab:
+        - if:
+            condition:
+              any:
+                - equals: [ state.applying, true ]
+                - equals: [ state.failed, true ]
+            then: []
+            else:
+              - if:
+                  condition: { equals: [ state.focus, lang ] }
+                  then:
+                    - set:
+                        path: state.focus
+                        value: keymap
+                  else:
+                    - set:
+                        path: state.focus
+                        value: lang
+      enter:
+        - if:
+            condition: { equals: [ state.failed, true ] }
+            then:
+              - replace:
+                  page: home
+                  params: {}
+            else:
+              - if:
+                  condition: { equals: [ state.applying, true ] }
+                  then: []
+                  else:
+                    - if:
+                        condition: { equals: [ state.focus, lang ] }
+                        then:
+                          - set:
+                              path: data.system.lang
+                              value:
+                                itemAt:
+                                  list: state.languages
+                                  index: state.langSelected
+                                  key: lang
+                          - set:
+                              path: state.focus
+                              value: keymap
+                          - set:
+                              path: state.status
+                              value: "已选择 LANG={{ data.system.lang }}，请选择键盘布局（KEYMAP）"
+                        else:
+                          - set:
+                              path: data.system.keymap
+                              value:
+                                itemAt:
+                                  list: state.keymaps
+                                  index: state.keymapSelected
+                                  key: keymap
+                          - set:
+                              path: state.applying
+                              value: true
+                          - set:
+                              path: state.status
+                              value: 正在应用系统语言和键盘布局...
+                          - call:
+                              sh: |
+                                set -eu
+                                if command -v localectl >/dev/null 2>&1; then
+                                  localectl set-locale "LANG=$SYSTEM_LANG"
+                                  localectl set-keymap "$SYSTEM_KEYMAP"
+                                elif command -v loadkeys >/dev/null 2>&1; then
+                                  loadkeys "$SYSTEM_KEYMAP"
+                                else
+                                  echo "系统没有找到 localectl 或 loadkeys" >&2
+                                  exit 127
+                                fi
+                              env:
+                                SYSTEM_LANG: { bind: data.system.lang }
+                                SYSTEM_KEYMAP: { bind: data.system.keymap }
+                              wait: true
+                              interpreter: sh
+                              stdio: ignore
+                              code: state.exitCode
+                          - set:
+                              path: state.applying
+                              value: false
+                          - if:
+                              condition: { equals: [ state.exitCode, 0 ] }
+                              then:
+                                - set:
+                                    path: state.status
+                                    value: "已设置 LANG={{ data.system.lang }}，KEYMAP={{ data.system.keymap }}"
+                                - set:
+                                    path: env.LANG
+                                    value: { bind: data.system.lang }
+                                - set:
+                                    path: env.LC_ALL
+                                    value: { bind: data.system.lang }
+                                - push:
+                                    page: First Info
+                                    params:
+                                      lang: { bind: data.system.lang }
+                                      keymap: { bind: data.system.keymap }
+                              else:
+                                - set:
+                                    path: state.failed
+                                    value: true
+                                - set:
+                                    path: state.status
+                                    value: "系统语言或键盘布局设置失败，退出码 {{ state.exitCode }}"
+      q:
+        - push:
+            page: bye
+            params:
+              fromPage:
+                bind: app.currentPage.name
+      escape:
+        - push:
+            page: bye
+            params:
+              fromPage:
+                bind: app.currentPage.name
+  First Info:
+    title: 初始化网络
+    state:
+      items:
+        - title: 1. 无线连接
+        - title: 2. 有线连接
+      selected: 0
+      dialogSelected: 0
+      isshow_dialog: false
+      progress: 0
+      exitCode: null
+      pstatus: ""
+      running: false
+      cancelled: false
+      subitems:
+        - title: 1. 重试
+        - title: 2. 关闭
+      iserror: false
+      txtstatus: 请稍后...
+    layout:
+      type: column
+      children:
+        - type: panel
+          title: 初始化网络
+          flex: true
+          child:
+            type: column
+            gap: 1
+            children:
+              - type: text
+                value: Meow Arch 依赖网络进行安装，请选择你的网络接入方式
+              - type: list
+                items: state.items
+                selected: state.selected
+                label: "{{ item.title }}"
+                visible: { equals: [ state.isshow_dialog, false ] }
+              - type: popup
+                title: 提示
+                width: 48
+                height: 10
+                children:
+                  - type: text
+                    value: { bind: state.txtstatus }
+                  - type: progress
+                    bind: state.progress
+                    max: 100
+                    label: 进度
+                  - type: text
+                    value: { bind: state.pstatus }
+                  - type: list
+                    items: state.subitems
+                    selected: state.dialogSelected
+                    label: "{{ item.title }}"
+                    visible: { equals: [ state.iserror, true ] }
+                visible: { equals: [ state.isshow_dialog, true ] }
+        - type: text
+          value: ↑/↓ 选择   Enter 选择   q 退出   Esc 返回
+          style: muted
+    keys:
+      up:
+        - if:
+            condition: { equals: [ state.isshow_dialog, true ] }
+            then:
+              - if:
+                  condition: { equals: [ state.running, true ] }
+                  then: []
+                  else:
+                    - move:
+                        path: state.dialogSelected
+                        by: -1
+                        list: state.subitems
+            else:
+              - move:
+                  path: state.selected
+                  by: -1
+                  list: state.items
+      down:
+        - if:
+            condition: { equals: [ state.isshow_dialog, true ] }
+            then:
+              - if:
+                  condition: { equals: [ state.running, true ] }
+                  then: []
+                  else:
+                    - move:
+                        path: state.dialogSelected
+                        by: 1
+                        list: state.subitems
+            else:
+              - move:
+                  path: state.selected
+                  by: 1
+                  list: state.items
+      q:
+        - if:
+            condition: { equals: [ state.isshow_dialog, true ] }
+            then:
+              - if:
+                  condition: { equals: [ state.running, true ] }
+                  then:
+                    - set:
+                        path: state.cancelled
+                        value: true
+                    - pop: {}
+                  else:
+                    - set:
+                        path: state.isshow_dialog
+                        value: false
+                    - set:
+                        path: state.iserror
+                        value: false
+            else:
+              - push:
+                  page: bye
+                  params:
+                    fromPage: { bind: app.currentPage.name }
+      enter:
+        - if:
+            condition: { equals: [ state.isshow_dialog, true ] }
+            then:
+              - if:
+                  condition: { equals: [ state.running, true ] }
+                  then: []
+                  else:
+                    - if:
+                        condition: { equals: [ state.dialogSelected, 0 ] }
+                        then:
+                          - replace:
+                              page: First Info
+                              params: {}
+                        else:
+                          - set:
+                              path: state.isshow_dialog
+                              value: false
+                          - set:
+                              path: state.iserror
+                              value: false
+            else:
+              - if:
+                  condition: { equals: [ state.selected, 0 ] }
+                  then:
+                    - push:
+                        page: wireless
+                        params: {}
+                  else:
+                    - set:
+                        path: state.isshow_dialog
+                        value: true
+                    - set:
+                        path: state.running
+                        value: true
+                    - set:
+                        path: state.cancelled
+                        value: false
+                    - set:
+                        path: state.iserror
+                        value: false
+                    - set:
+                        path: state.dialogSelected
+                        value: 0
+                    - set:
+                        path: state.progress
+                        value: 20
+                    - set:
+                        path: state.txtstatus
+                        value: 正在检查有线网络，请稍候...
+                    - call:
+                        sh: ping -c 5 -W 2 bing.com
+                        wait: false
+                        interpreter: sh
+                        stdio: ignore
+                        code: state.exitCode
+                        onExit:
+                          - if:
+                              condition: { equals: [ state.cancelled, true ] }
+                              then: []
+                              else:
+                                - set:
+                                    path: state.running
+                                    value: false
+                                - if:
+                                    condition: { equals: [ { bind: key.code }, 0 ] }
+                                    then:
+                                      - set:
+                                          path: state.progress
+                                          value: 100
+                                      - set:
+                                          path: state.pstatus
+                                          value: "有线网络检查成功（退出码 0）"
+                                      - set:
+                                          path: state.isshow_dialog
+                                          value: false
+                                      - push:
+                                          page: timezone
+                                          params: {}
+                                    else:
+                                      - set:
+                                          path: state.progress
+                                          value: 0
+                                      - set:
+                                          path: state.iserror
+                                          value: true
+                                      - set:
+                                          path: state.pstatus
+                                          value: "有线网络检查失败，退出码 {{ key.code }}"
+      escape:
+        - set:
+            path: state.cancelled
+            value: true
+        - pop: {}
+  wireless:
+    title: 无线网络
+    state:
+      ssid: ""
+      password: ""
+      focus: ssid
+      status: 请输入 Wi-Fi 名称和密码
+      exitCode: null
+      checkCode: null
+      progress: 0
+      working: false
+      cancelled: false
+    layout:
+      type: column
+      children:
+        - type: panel
+          title: 无线连接
+          flex: true
+          child:
+            type: column
+            gap: 1
+            children:
+              - type: text
+                value: 输入无线网络信息，按 Tab 或 ↑/↓ 切换输入框
+                visible: { equals: [ state.working, false ] }
+              - type: text
+                value: Wi-Fi 名称（SSID）
+                visible: { equals: [ state.working, false ] }
+              - type: input
+                bind: state.ssid
+                placeholder: 例如 My-WiFi
+                focus: { equals: [ state.focus, ssid ] }
+                visible: { equals: [ state.working, false ] }
+              - type: text
+                value: Wi-Fi 密码
+                visible: { equals: [ state.working, false ] }
+              - type: input
+                bind: state.password
+                placeholder: 输入密码
+                mask: true
+                focus: { equals: [ state.focus, password ] }
+                visible: { equals: [ state.working, false ] }
+              - type: text
+                value: { bind: state.status }
+              - type: popup
+                title: 提示
+                width: 48
+                height: 8
+                visible: { equals: [ state.working, true ] }
+                children:
+                  - type: text
+                    value: { bind: state.status }
+                  - type: progress
+                    bind: state.progress
+                    max: 100
+                    label: 进度
+        - type: text
+          value: Enter 下一步/连接   Tab 或 ↑/↓ 切换输入框   Esc 返回
+          style: muted
+    keys:
+      up:
+        - if:
+            condition: { equals: [ state.working, true ] }
+            then: []
+            else:
+              - if:
+                  condition: { equals: [ state.focus, password ] }
+                  then:
+                    - set:
+                        path: state.focus
+                        value: ssid
+      down:
+        - if:
+            condition: { equals: [ state.working, true ] }
+            then: []
+            else:
+              - if:
+                  condition: { equals: [ state.focus, ssid ] }
+                  then:
+                    - set:
+                        path: state.focus
+                        value: password
+      tab:
+        - if:
+            condition: { equals: [ state.working, true ] }
+            then: []
+            else:
+              - if:
+                  condition: { equals: [ state.focus, ssid ] }
+                  then:
+                    - set:
+                        path: state.focus
+                        value: password
+                  else:
+                    - set:
+                        path: state.focus
+                        value: ssid
+      q:
+        - set:
+            path: state.cancelled
+            value: true
+        - pop: {}
+      escape:
+        - set:
+            path: state.cancelled
+            value: true
+        - pop: {}
+      enter:
+        - if:
+            condition: { equals: [ state.working, true ] }
+            then: []
+            else:
+              - if:
+                  condition: { equals: [ state.focus, ssid ] }
+                  then:
+                    - set:
+                        path: state.focus
+                        value: password
+                  else:
+                    - if:
+                        condition:
+                          all:
+                            - notEmpty: state.ssid
+                            - notEmpty: state.password
+                        then:
+                          - set:
+                              path: state.working
+                              value: true
+                          - set:
+                              path: state.cancelled
+                              value: false
+                          - set:
+                              path: state.progress
+                              value: 20
+                          - set:
+                              path: state.status
+                              value: 正在连接无线网络...
+                          - call:
+                              sh: |
+                                set -eu
+                                if command -v nmcli >/dev/null 2>&1; then
+                                  nmcli --wait 20 device wifi connect "$WIFI_SSID" password "$WIFI_PASSWORD"
+                                elif command -v iwctl >/dev/null 2>&1; then
+                                  WIFI_DEVICE="$(iwctl device list | awk 'NF && $1 !~ /^(Devices:|Name|---)/ { print $1; exit }')"
+                                  if [ -z "$WIFI_DEVICE" ]; then
+                                    echo "没有找到无线网卡" >&2
+                                    exit 2
+                                  fi
+                                  iwctl --passphrase "$WIFI_PASSWORD" station "$WIFI_DEVICE" connect "$WIFI_SSID"
+                                else
+                                  echo "系统没有 nmcli 或 iwctl" >&2
+                                  exit 127
+                                fi
+                              env:
+                                WIFI_SSID: { bind: state.ssid }
+                                WIFI_PASSWORD: { bind: state.password }
+                              wait: false
+                              interpreter: sh
+                              stdio: ignore
+                              code: state.exitCode
+                              onExit:
+                                - if:
+                                    condition: { equals: [ state.cancelled, true ] }
+                                    then: []
+                                    else:
+                                      - if:
+                                          condition: { equals: [ { bind: key.code }, 0 ] }
+                                          then:
+                                            - set:
+                                                path: state.progress
+                                                value: 60
+                                            - set:
+                                                path: state.status
+                                                value: 正在检查网络连通性...
+                                            - call:
+                                                sh: ping -c 3 -W 2 bing.com
+                                                wait: false
+                                                interpreter: sh
+                                                stdio: ignore
+                                                code: state.checkCode
+                                                onExit:
+                                                  - if:
+                                                      condition: { equals: [ state.cancelled, true ] }
+                                                      then: []
+                                                      else:
+                                                        - set:
+                                                            path: state.working
+                                                            value: false
+                                                        - if:
+                                                            condition: { equals: [ { bind: key.code }, 0 ] }
+                                                            then:
+                                                              - set:
+                                                                  path: state.progress
+                                                                  value: 100
+                                                              - set:
+                                                                  path: state.status
+                                                                  value: 无线网络连接成功
+                                                              - push:
+                                                                  page: timezone
+                                                                  params: {}
+                                                            else:
+                                                              - set:
+                                                                  path: state.progress
+                                                                  value: 0
+                                                              - set:
+                                                                  path: state.status
+                                                                  value: 已连接无线网络，但无法访问互联网
+                                          else:
+                                            - set:
+                                                path: state.working
+                                                value: false
+                                            - set:
+                                                path: state.progress
+                                                value: 0
+                                            - set:
+                                                path: state.status
+                                                value: "无线连接失败，退出码 {{ key.code }}"
+                        else:
+                          - set:
+                              path: state.status
+                              value: SSID 和密码都不能为空
+  timezone:
+    title: 选择时区
+    state:
+      zones:
+        - name: Asia/Shanghai
+          label: 1. 中国标准时间（Asia/Shanghai）
+        - name: UTC
+          label: 2. 协调世界时（UTC）
+        - name: Asia/Tokyo
+          label: 3. 日本标准时间（Asia/Tokyo）
+        - name: Europe/London
+          label: 4. 英国时间（Europe/London）
+        - name: America/New_York
+          label: 5. 美国东部时间（America/New_York）
+        - name: America/Los_Angeles
+          label: 6. 美国西部时间（America/Los_Angeles）
+      selected: 0
+      dialogSelected: 0
+      subitems:
+        - title: 1. 重试
+        - title: 2. 返回
+      status: 请选择系统时区
+      progress: 0
+      exitCode: null
+      working: false
+      failed: false
+      cancelled: false
+    layout:
+      type: column
+      children:
+        - type: panel
+          title: 选择时区
+          flex: true
+          child:
+            type: column
+            gap: 1
+            children:
+              - type: text
+                value: 请选择系统时区，选定后将设置时区并开始时间同步
+              - type: list
+                items: state.zones
+                selected: state.selected
+                label: "{{ item.label }}"
+                visible:
+                  all:
+                    - equals: [ state.working, false ]
+                    - equals: [ state.failed, false ]
+              - type: popup
+                title: 提示
+                width: 52
+                height: 10
+                visible:
+                  any:
+                    - equals: [ state.working, true ]
+                    - equals: [ state.failed, true ]
+                children:
+                  - type: text
+                    value: { bind: state.status }
+                  - type: progress
+                    bind: state.progress
+                    max: 100
+                    label: 进度
+                  - type: list
+                    items: state.subitems
+                    selected: state.dialogSelected
+                    label: "{{ item.title }}"
+                    visible: { equals: [ state.failed, true ] }
+        - type: text
+          value: ↑/↓ 选择   Enter 设置   Esc 返回
+          style: muted
+    keys:
+      up:
+        - if:
+            condition:
+              any:
+                - equals: [ state.working, true ]
+                - equals: [ state.failed, true ]
+            then: []
+            else:
+              - move:
+                  path: state.selected
+                  by: -1
+                  list: state.zones
+      down:
+        - if:
+            condition:
+              any:
+                - equals: [ state.working, true ]
+                - equals: [ state.failed, true ]
+            then: []
+            else:
+              - move:
+                  path: state.selected
+                  by: 1
+                  list: state.zones
+      q:
+        - set:
+            path: state.cancelled
+            value: true
+        - pop: {}
+      escape:
+        - set:
+            path: state.cancelled
+            value: true
+        - pop: {}
+      enter:
+        - if:
+            condition: { equals: [ state.working, true ] }
+            then: []
+            else:
+              - if:
+                  condition: { equals: [ state.failed, true ] }
+                  then:
+                    - replace:
+                        page: timezone
+                        params: {}
+                  else:
+                    - set:
+                        path: state.working
+                        value: true
+                    - set:
+                        path: state.cancelled
+                        value: false
+                    - set:
+                        path: state.progress
+                        value: 20
+                    - set:
+                        path: state.status
+                        value: 正在设置系统时区...
+                    - call:
+                        sh: |
+                          set -eu
+                          if command -v timedatectl >/dev/null 2>&1; then
+                            timedatectl set-timezone "$TIMEZONE"
+                          elif [ -e "/usr/share/zoneinfo/$TIMEZONE" ]; then
+                            ln -sf "/usr/share/zoneinfo/$TIMEZONE" /etc/localtime
+                            printf '%s\n' "$TIMEZONE" > /etc/timezone
+                          else
+                            echo "系统没有可用的时区数据库" >&2
+                            exit 127
+                          fi
+                        env:
+                          TIMEZONE:
+                            itemAt:
+                              list: state.zones
+                              index: state.selected
+                              key: name
+                        wait: false
+                        interpreter: sh
+                        stdio: ignore
+                        code: state.exitCode
+                        onExit:
+                          - if:
+                              condition: { equals: [ state.cancelled, true ] }
+                              then: []
+                              else:
+                                - set:
+                                    path: state.working
+                                    value: false
+                                - if:
+                                    condition: { equals: [ { bind: key.code }, 0 ] }
+                                    then:
+                                      - set:
+                                          path: state.progress
+                                          value: 100
+                                      - set:
+                                          path: state.status
+                                          value: 时区设置完成，准备同步时间...
+                                      - push:
+                                          page: time-sync
+                                          params: {}
+                                    else:
+                                      - set:
+                                          path: state.failed
+                                          value: true
+                                      - set:
+                                          path: state.progress
+                                          value: 0
+                                      - set:
+                                          path: state.status
+                                          value: "时区设置失败，退出码 {{ key.code }}"
+  time-sync:
+    title: 时间同步
+    state:
+      status: 正在同步系统时间...
+      progress: 20
+      exitCode: null
+      failed: false
+      cancelled: false
+    layout:
+      type: column
+      children:
+        - type: panel
+          title: 时间同步
+          flex: true
+          child:
+            type: column
+            gap: 1
+            children:
+              - type: text
+                value: 正在启用网络时间同步，请稍候...
+              - type: progress
+                bind: state.progress
+                max: 100
+                label: 进度
+              - type: text
+                value: { bind: state.status }
+              - type: text
+                value: Enter 重试   Esc 返回
+                visible: { equals: [ state.failed, true ] }
+        - type: text
+          value: 时间同步完成后即可继续安装
+          style: muted
+    keys:
+      q:
+        - set:
+            path: state.cancelled
+            value: true
+        - pop: {}
+      escape:
+        - set:
+            path: state.cancelled
+            value: true
+        - pop: {}
+      enter:
+        - if:
+            condition: { equals: [ state.failed, true ] }
+            then:
+              - replace:
+                  page: time-sync
+                  params: {}
+    on:
+      enter:
+        - call:
+            sh: |
+              set -eu
+              if command -v timedatectl >/dev/null 2>&1; then
+                timedatectl set-ntp true
+                for attempt in 1 2 3 4 5 6 7 8 9 10; do
+                  if [ "$(timedatectl show -p NTPSynchronized --value 2>/dev/null)" = "yes" ]; then
+                    exit 0
+                  fi
+                  sleep 1
+                done
+                exit 1
+              elif command -v chronyc >/dev/null 2>&1; then
+                chronyc -a makestep
+              elif command -v ntpd >/dev/null 2>&1; then
+                ntpd -qg
+              else
+                echo "没有找到 timedatectl、chronyc 或 ntpd" >&2
+                exit 127
+              fi
+            wait: false
+            interpreter: sh
+            stdio: ignore
+            code: state.exitCode
+            onExit:
+              - if:
+                  condition: { equals: [ state.cancelled, true ] }
+                  then: []
+                  else:
+                    - if:
+                        condition: { equals: [ { bind: key.code }, 0 ] }
+                        then:
+                          - set:
+                              path: state.progress
+                              value: 100
+                          - set:
+                              path: state.status
+                              value: 时间同步完成
+                          - push:
+                              page: partition
+                              params: {}
+                        else:
+                          - set:
+                              path: state.failed
+                              value: true
+                          - set:
+                              path: state.progress
+                              value: 0
+                          - set:
+                              path: state.status
+                              value: "时间同步失败，退出码 {{ key.code }}"
+  partition:
+    title: 磁盘分区
+    state:
+      diskLines: []
+      selected: 0
+      scanCode: null
+      exitCode: null
+      status: 正在读取磁盘列表...
+      opened: false
+      awaitingDecision: false
+      decisionSelected: 0
+      decisionItems:
+        - title: 1. 返回继续分区
+        - title: 2. 下一步
+      failed: false
+    layout:
+      type: column
+      children:
+        - type: panel
+          title: 磁盘分区
+          flex: true
+          child:
+            type: column
+            gap: 1
+            children:
+              - type: text
+                value: 请选择要进行分区的磁盘
+                visible:
+                  all:
+                    - equals: [ state.failed, false ]
+                    - equals: [ state.awaitingDecision, false ]
+              - type: list
+                items: state.diskLines
+                selected: state.selected
+                label: "{{ item }}"
+                visible:
+                  all:
+                    - equals: [ state.failed, false ]
+                    - equals: [ state.awaitingDecision, false ]
+              - type: popup
+                title: 分区完成
+                width: 64
+                height: 10
+                visible: { equals: [ state.awaitingDecision, true ] }
+                children:
+                  - type: text
+                    value: { bind: state.status }
+                  - type: list
+                    items: state.decisionItems
+                    selected: state.decisionSelected
+                    label: "{{ item.title }}"
+              - type: popup
+                title: 分区提示
+                width: 64
+                height: 10
+                visible: { equals: [ state.failed, true ] }
+                children:
+                  - type: text
+                    value: { bind: state.status }
+                  - type: text
+                    value: Enter 重新读取磁盘   Esc 返回
+              - type: text
+                value: { bind: state.status }
+                visible:
+                  all:
+                    - equals: [ state.failed, false ]
+                    - equals: [ state.awaitingDecision, false ]
+              - type: text
+                value: ↑/↓ 选择磁盘   Enter 打开 cfdisk   Esc 返回
+                visible:
+                  all:
+                    - equals: [ state.failed, false ]
+                    - equals: [ state.awaitingDecision, false ]
+        - type: text
+          value: 分区操作将在外部终端程序中完成，请谨慎确认磁盘
+          style: muted
+    keys:
+      q:
+        - pop: {}
+      escape:
+        - pop: {}
+      up:
+        - if:
+            condition: { equals: [ state.failed, true ] }
+            then: []
+            else:
+              - if:
+                  condition: { equals: [ state.awaitingDecision, true ] }
+                  then:
+                    - move:
+                        path: state.decisionSelected
+                        by: -1
+                        list: state.decisionItems
+                  else:
+                    - move:
+                        path: state.selected
+                        by: -1
+                        list: state.diskLines
+      down:
+        - if:
+            condition: { equals: [ state.failed, true ] }
+            then: []
+            else:
+              - if:
+                  condition: { equals: [ state.awaitingDecision, true ] }
+                  then:
+                    - move:
+                        path: state.decisionSelected
+                        by: 1
+                        list: state.decisionItems
+                  else:
+                    - move:
+                        path: state.selected
+                        by: 1
+                        list: state.diskLines
+      enter:
+        - if:
+            condition: { equals: [ state.failed, true ] }
+            then:
+              - replace:
+                  page: partition
+                  params: {}
+            else:
+              - if:
+                  condition: { equals: [ state.awaitingDecision, true ] }
+                  then:
+                    - if:
+                        condition: { equals: [ state.decisionSelected, 0 ] }
+                        then:
+                          - replace:
+                              page: partition
+                              params: {}
+                        else:
+                          - push:
+                              page: partition-next
+                              params:
+                                diskLine:
+                                  itemAt:
+                                    list: state.diskLines
+                                    index: state.selected
+                  else:
+                    - set:
+                        path: state.opened
+                        value: false
+                    - set:
+                        path: state.status
+                        value: 正在打开 cfdisk，请稍候...
+                    - call:
+                        sh: |
+                          set -eu
+                          if ! command -v cfdisk >/dev/null 2>&1; then
+                            echo "系统没有找到 cfdisk" >&2
+                            exit 127
+                          fi
+                          DISK="$({
+                            lsblk -dnpo NAME,SIZE,TYPE,MODEL
+                          } | awk '$3 == "disk" { print $1 }' | sed -n "$((DISK_INDEX + 1))p")"
+                          if [ -z "$DISK" ]; then
+                            echo "没有找到所选磁盘" >&2
+                            exit 2
+                          fi
+                          exec cfdisk "$DISK"
+                        env:
+                          DISK_INDEX: { bind: state.selected }
+                        wait: true
+                        stdio: inherit
+                        code: state.exitCode
+                    - set:
+                        path: state.opened
+                        value: true
+                    - if:
+                        condition: { equals: [ state.exitCode, 0 ] }
+                        then:
+                          - set:
+                              path: state.awaitingDecision
+                              value: true
+                          - set:
+                              path: state.decisionSelected
+                              value: 0
+                          - set:
+                              path: state.status
+                              value: cfdisk 已退出，请选择下一步
+                        else:
+                          - set:
+                              path: state.failed
+                              value: true
+                          - set:
+                              path: state.status
+                              value: "cfdisk 启动或退出失败，退出码 {{ state.exitCode }}"
+    on:
+      enter:
+        - call:
+            sh: |
+              set -eu
+              if ! command -v lsblk >/dev/null 2>&1; then
+                echo "系统没有找到 lsblk" >&2
+                exit 127
+              fi
+              lsblk -dnpo NAME,SIZE,TYPE,MODEL | awk '$3 == "disk"'
+            wait: true
+            stdio: pipe
+            lines: state.diskLines
+            code: state.scanCode
+        - if:
+            condition:
+              any:
+                - notEquals: [ state.scanCode, 0 ]
+                - empty: state.diskLines
+            then:
+              - set:
+                  path: state.failed
+                  value: true
+              - set:
+                  path: state.status
+                  value: "读取磁盘列表失败，退出码 {{ state.scanCode }}"
+            else:
+              - set:
+                  path: state.status
+                  value: 请选择目标磁盘，按 Enter 打开 cfdisk
+  partition-next:
+    title: 下一步
+    state:
+      partitionLines: []
+      partitionCount: 0
+      selected: 0
+      scanCode: null
+      status: 正在读取分区列表...
+      failed: false
+    layout:
+      type: column
+      children:
+        - type: panel
+          title: 选择分区挂载方式
+          flex: true
+          child:
+            type: column
+            gap: 1
+            children:
+              - type: text
+                value: "目标磁盘：{{ params.diskLine }}"
+                visible: { equals: [ state.failed, false ] }
+              - type: text
+                value: 请选择要配置的分区，按 Enter 设置挂载方式和格式化方式。
+                visible: { equals: [ state.failed, false ] }
+              - type: list
+                items: state.partitionLines
+                selected: state.selected
+                label: "{{ item }}"
+                visible: { equals: [ state.failed, false ] }
+              - type: text
+                value: "已保存 {{ count(data.install.mountPlan) }} 个分区配置"
+                visible: { equals: [ state.failed, false ] }
+              - type: popup
+                title: 读取分区失败
+                width: 64
+                height: 8
+                visible: { equals: [ state.failed, true ] }
+                children:
+                  - type: text
+                    value: { bind: state.status }
+                  - type: text
+                    value: Enter 重新读取   Esc 返回
+              - type: text
+                value: { bind: state.status }
+                visible: { equals: [ state.failed, false ] }
+        - type: text
+          value: ↑/↓ 选择分区/下一步   Enter 配置或继续   Esc 返回
+          style: muted
+    keys:
+      q:
+        - pop: {}
+      escape:
+        - pop: {}
+      up:
+        - if:
+            condition: { equals: [ state.failed, true ] }
+            then: []
+            else:
+              - move:
+                  path: state.selected
+                  by: -1
+                  list: state.partitionLines
+      down:
+        - if:
+            condition: { equals: [ state.failed, true ] }
+            then: []
+            else:
+              - move:
+                  path: state.selected
+                  by: 1
+                  list: state.partitionLines
+      enter:
+        - if:
+            condition: { equals: [ state.failed, true ] }
+            then:
+              - replace:
+                  page: partition-next
+                  params:
+                    diskLine: { bind: params.diskLine }
+            else:
+              - if:
+                  condition: { equals: [ state.selected, state.partitionCount ] }
+                  then:
+                    - if:
+                        condition:
+                          all:
+                            - equals: [ data.install.hasRoot, true ]
+                            - equals: [ data.install.hasBoot, true ]
+                        then:
+                          - set:
+                              path: data.install.partitionReady
+                              value: true
+                          - set:
+                              path: state.status
+                              value: 已满足根分区（/）和 /boot 的挂载要求，可以进入下一步
+                          - push:
+                              page: user-hostname
+                              params: {}
+                        else:
+                          - set:
+                              path: state.status
+                              value: "必须先配置根分区（/）和 /boot，当前缺少：{{ if(data.install.hasRoot, '', '/') }}{{ if(data.install.hasBoot, '', ' /boot') }}"
+                  else:
+                    - push:
+                        page: partition-config
+                        params:
+                          partitionLine:
+                            itemAt:
+                              list: state.partitionLines
+                              index: state.selected
+    on:
+      enter:
+        - set:
+            path: data.install.mountPlan
+            value: []
+        - set:
+            path: data.install.hasRoot
+            value: false
+        - set:
+            path: data.install.hasBoot
+            value: false
+        - set:
+            path: data.install.partitionReady
+            value: false
+        - call:
+            sh: |
+              set -eu
+              if ! command -v lsblk >/dev/null 2>&1; then
+                echo "系统没有找到 lsblk" >&2
+                exit 127
+              fi
+              DISK="$(printf '%s\n' "$DISK_LINE" | awk '{ print $1 }')"
+              if [ -z "$DISK" ]; then
+                echo "没有找到目标磁盘" >&2
+                exit 2
+              fi
+              lsblk -lnpo NAME,SIZE,FSTYPE,TYPE,MOUNTPOINT "$DISK" |
+                awk '$4 == "part" { printf "%s  %s  %s  %s\n", $1, $2, ($3 == "" ? "-" : $3), ($5 == "" ? "-" : $5) }'
+            env:
+              DISK_LINE: { bind: params.diskLine }
+            wait: true
+            stdio: pipe
+            lines: state.partitionLines
+            code: state.scanCode
+        - if:
+            condition:
+              any:
+                - notEquals: [ state.scanCode, 0 ]
+                - empty: state.partitionLines
+            then:
+              - set:
+                  path: state.failed
+                  value: true
+              - set:
+                  path: state.status
+                  value: "读取分区列表失败，退出码 {{ state.scanCode }}"
+            else:
+              - set:
+                  path: state.partitionCount
+                  value:
+                    count: state.partitionLines
+              - append:
+                  list: state.partitionLines
+                  value: 下一步
+              - set:
+                  path: state.status
+                  value: 请选择分区，按 Enter 配置挂载方式和格式化方式；完成 / 和 /boot 后选择下一步
+  partition-config:
+    title: 分区配置
+    state:
+      mountModes:
+        - label: 不挂载
+          value: none
+          mountPoint: ""
+        - label: 根分区（/ → /mnt）
+          value: root
+          mountPoint: /mnt
+        - label: Boot 分区（/boot → /mnt/boot）
+          value: boot
+          mountPoint: /mnt/boot
+        - label: Home 分区（挂载到 /mnt/home）
+          value: home
+          mountPoint: /mnt/home
+        - label: 交换分区（swap）
+          value: swap
+          mountPoint: swap
+        - label: 自定义挂载点
+          value: custom
+          mountPoint: ""
+      formatOptions:
+        - label: 保留现有文件系统（不格式化）
+          value: preserve
+        - label: 格式化为 ext4
+          value: ext4
+        - label: 格式化为 btrfs
+          value: btrfs
+        - label: 格式化为 xfs
+          value: xfs
+        - label: 格式化为 vfat
+          value: vfat
+        - label: 格式化为 swap
+          value: swap
+      mountModeSelected: 0
+      formatSelected: 0
+      mountPoint: ""
+      focus: mount
+      status: 请选择挂载方式
+    layout:
+      type: column
+      children:
+        - type: panel
+          title: 分区配置
+          flex: true
+          child:
+            type: column
+            gap: 0
+            children:
+              - type: text
+                value: "分区：{{ params.partitionLine }}"
+              - type: text
+                value: 挂载方式
+              - type: list
+                items: state.mountModes
+                selected: state.mountModeSelected
+                label: "{{ item.label }}"
+                focus: { equals: [ state.focus, mount ] }
+              - type: input
+                bind: state.mountPoint
+                placeholder: 例如 /mnt/data
+                focus: { equals: [ state.focus, mountpoint ] }
+                visible: { equals: [ state.mountModeSelected, 5 ] }
+              - type: text
+                value: 格式化方式
+              - type: list
+                items: state.formatOptions
+                selected: state.formatSelected
+                label: "{{ item.label }}"
+                focus: { equals: [ state.focus, format ] }
+              - type: text
+                value: { bind: state.status }
+              - type: text
+                value: 格式化会删除该分区上的数据，当前只保存配置，不会立即执行
+                style: muted
+        - type: text
+          value: ↑/↓ 选择   Tab 切换   Enter 保存   Esc 返回
+          style: muted
+    keys:
+      q:
+        - pop: {}
+      escape:
+        - pop: {}
+      up:
+        - if:
+            condition: { equals: [ state.focus, mount ] }
+            then:
+              - move:
+                  path: state.mountModeSelected
+                  by: -1
+                  list: state.mountModes
+            else:
+              - if:
+                  condition: { equals: [ state.focus, mountpoint ] }
+                  then:
+                    - set:
+                        path: state.focus
+                        value: mount
+                  else:
+                    - move:
+                        path: state.formatSelected
+                        by: -1
+                        list: state.formatOptions
+      down:
+        - if:
+            condition: { equals: [ state.focus, mount ] }
+            then:
+              - move:
+                  path: state.mountModeSelected
+                  by: 1
+                  list: state.mountModes
+            else:
+              - if:
+                  condition: { equals: [ state.focus, mountpoint ] }
+                  then:
+                    - set:
+                        path: state.focus
+                        value: format
+                  else:
+                    - move:
+                        path: state.formatSelected
+                        by: 1
+                        list: state.formatOptions
+      tab:
+        - if:
+            condition: { equals: [ state.focus, mount ] }
+            then:
+              - if:
+                  condition: { equals: [ state.mountModeSelected, 5 ] }
+                  then:
+                    - set:
+                        path: state.focus
+                        value: mountpoint
+                  else:
+                    - set:
+                        path: state.focus
+                        value: format
+            else:
+              - if:
+                  condition: { equals: [ state.focus, mountpoint ] }
+                  then:
+                    - set:
+                        path: state.focus
+                        value: format
+                  else:
+                    - set:
+                        path: state.focus
+                        value: mount
+      enter:
+        - if:
+            condition: { equals: [ state.focus, mount ] }
+            then:
+              - if:
+                  condition: { equals: [ state.mountModeSelected, 5 ] }
+                  then:
+                    - set:
+                        path: state.focus
+                        value: mountpoint
+                  else:
+                    - set:
+                        path: state.focus
+                        value: format
+            else:
+              - if:
+                  condition: { equals: [ state.focus, mountpoint ] }
+                  then:
+                    - set:
+                        path: state.focus
+                        value: format
+                  else:
+                    - if:
+                        condition:
+                          all:
+                            - equals: [ state.mountModeSelected, 5 ]
+                            - empty: state.mountPoint
+                        then:
+                          - set:
+                              path: state.status
+                              value: 自定义挂载点不能为空
+                        else:
+                          - append:
+                              list: data.install.mountPlan
+                              value:
+                                partition: { bind: params.partitionLine }
+                                mount:
+                                  itemAt:
+                                    list: state.mountModes
+                                    index: state.mountModeSelected
+                                    key: value
+                                mountPoint:
+                                  itemAt:
+                                    list: state.mountModes
+                                    index: state.mountModeSelected
+                                    key: mountPoint
+                                customMountPoint: { bind: state.mountPoint }
+                                format:
+                                  itemAt:
+                                    list: state.formatOptions
+                                    index: state.formatSelected
+                                    key: value
+                          - if:
+                              condition: { equals: [ state.mountModeSelected, 1 ] }
+                              then:
+                                - set:
+                                    path: data.install.hasRoot
+                                    value: true
+                              else:
+                                - if:
+                                    condition: { equals: [ state.mountModeSelected, 2 ] }
+                                    then:
+                                      - set:
+                                          path: data.install.hasBoot
+                                          value: true
+                          - pop: {}
+  user-hostname:
+    title: 新用户与主机名
+    state:
+      username: ""
+      password: ""
+      passwordConfirm: ""
+      rootPasswordModes:
+        - label: 与新用户密码相同
+          value: same
+        - label: 单独设置 root 密码
+          value: separate
+      rootPasswordModeSelected: 0
+      rootPassword: ""
+      rootPasswordConfirm: ""
+      hostname: ""
+      focus: username
+      status: 请输入新用户和主机名
+      saved: false
+    layout:
+      type: column
+      children:
+        - type: panel
+          title: 新用户与主机名
+          flex: true
+          child:
+            type: column
+            gap: 0
+            children:
+              - type: text
+                value: 设置安装完成后首次登录使用的用户和主机名
+              - type: text
+                value: 用户名
+              - type: input
+                bind: state.username
+                placeholder: 例如 arch
+                focus: { equals: [ state.focus, username ] }
+              - type: text
+                value: 用户密码
+              - type: input
+                bind: state.password
+                placeholder: 输入密码
+                mask: true
+                focus: { equals: [ state.focus, password ] }
+              - type: text
+                value: 确认密码
+              - type: input
+                bind: state.passwordConfirm
+                placeholder: 再次输入密码
+                mask: true
+                focus: { equals: [ state.focus, passwordConfirm ] }
+              - type: text
+                value: root 密码
+              - type: list
+                items: state.rootPasswordModes
+                selected: state.rootPasswordModeSelected
+                label: "{{ item.label }}"
+                focus: { equals: [ state.focus, rootMode ] }
+              - type: text
+                value: root 密码
+                visible: { equals: [ state.rootPasswordModeSelected, 1 ] }
+              - type: input
+                bind: state.rootPassword
+                placeholder: 输入 root 密码
+                mask: true
+                focus: { equals: [ state.focus, rootPassword ] }
+                visible: { equals: [ state.rootPasswordModeSelected, 1 ] }
+              - type: text
+                value: 确认 root 密码
+                visible: { equals: [ state.rootPasswordModeSelected, 1 ] }
+              - type: input
+                bind: state.rootPasswordConfirm
+                placeholder: 再次输入 root 密码
+                mask: true
+                focus: { equals: [ state.focus, rootPasswordConfirm ] }
+                visible: { equals: [ state.rootPasswordModeSelected, 1 ] }
+              - type: text
+                value: 主机名
+              - type: input
+                bind: state.hostname
+                placeholder: 例如 archlinux
+                focus: { equals: [ state.focus, hostname ] }
+              - type: text
+                value: { bind: state.status }
+        - type: text
+          value: ↑/↓ 选择   Tab 切换   Enter 确认/保存   Esc 返回
+          style: muted
+    keys:
+      q:
+        - pop: {}
+      escape:
+        - pop: {}
+      up:
+        - if:
+            condition: { equals: [ state.focus, username ] }
+            then:
+              - set:
+                  path: state.focus
+                  value: hostname
+            else:
+              - if:
+                  condition: { equals: [ state.focus, password ] }
+                  then:
+                    - set:
+                        path: state.focus
+                        value: username
+                  else:
+                    - if:
+                        condition: { equals: [ state.focus, passwordConfirm ] }
+                        then:
+                          - set:
+                              path: state.focus
+                              value: rootMode
+                        else:
+                          - if:
+                              condition: { equals: [ state.focus, rootMode ] }
+                              then:
+                                - move:
+                                    path: state.rootPasswordModeSelected
+                                    by: -1
+                                    list: state.rootPasswordModes
+                              else:
+                                - if:
+                                    condition: { equals: [ state.focus, rootPassword ] }
+                                    then:
+                                      - set:
+                                          path: state.focus
+                                          value: rootMode
+                                    else:
+                                      - if:
+                                          condition: { equals: [ state.focus, rootPasswordConfirm ] }
+                                          then:
+                                            - set:
+                                                path: state.focus
+                                                value: rootPassword
+                                          else:
+                                            - if:
+                                                condition: { equals: [ state.rootPasswordModeSelected, 1 ] }
+                                                then:
+                                                  - set:
+                                                      path: state.focus
+                                                      value: rootPasswordConfirm
+                                                else:
+                                                  - set:
+                                                      path: state.focus
+                                                      value: rootMode
+      down:
+        - if:
+            condition: { equals: [ state.focus, username ] }
+            then:
+              - set:
+                  path: state.focus
+                  value: password
+            else:
+              - if:
+                  condition: { equals: [ state.focus, password ] }
+                  then:
+                    - set:
+                        path: state.focus
+                        value: passwordConfirm
+                  else:
+                    - if:
+                        condition: { equals: [ state.focus, passwordConfirm ] }
+                        then:
+                          - set:
+                              path: state.focus
+                              value: rootMode
+                        else:
+                          - if:
+                              condition: { equals: [ state.focus, rootMode ] }
+                              then:
+                                - move:
+                                    path: state.rootPasswordModeSelected
+                                    by: 1
+                                    list: state.rootPasswordModes
+                              else:
+                                - if:
+                                    condition: { equals: [ state.focus, rootPassword ] }
+                                    then:
+                                      - set:
+                                          path: state.focus
+                                          value: rootPasswordConfirm
+                                    else:
+                                      - if:
+                                          condition: { equals: [ state.focus, rootPasswordConfirm ] }
+                                          then:
+                                            - set:
+                                                path: state.focus
+                                                value: hostname
+                                          else:
+                                            - set:
+                                                path: state.focus
+                                                value: username
+      tab:
+        - if:
+            condition: { equals: [ state.focus, username ] }
+            then:
+              - set:
+                  path: state.focus
+                  value: password
+            else:
+              - if:
+                  condition: { equals: [ state.focus, password ] }
+                  then:
+                    - set:
+                        path: state.focus
+                        value: passwordConfirm
+                  else:
+                    - if:
+                        condition: { equals: [ state.focus, passwordConfirm ] }
+                        then:
+                          - set:
+                              path: state.focus
+                              value: rootMode
+                        else:
+                          - if:
+                              condition: { equals: [ state.focus, rootMode ] }
+                              then:
+                                - if:
+                                    condition: { equals: [ state.rootPasswordModeSelected, 1 ] }
+                                    then:
+                                      - set:
+                                          path: state.focus
+                                          value: rootPassword
+                                    else:
+                                      - set:
+                                          path: state.focus
+                                          value: hostname
+                              else:
+                                - if:
+                                    condition: { equals: [ state.focus, rootPassword ] }
+                                    then:
+                                      - set:
+                                          path: state.focus
+                                          value: rootPasswordConfirm
+                                    else:
+                                      - if:
+                                          condition: { equals: [ state.focus, rootPasswordConfirm ] }
+                                          then:
+                                            - set:
+                                                path: state.focus
+                                                value: hostname
+                                          else:
+                                            - set:
+                                                path: state.focus
+                                                value: username
+      enter:
+        - if:
+            condition: { equals: [ state.focus, username ] }
+            then:
+              - set:
+                  path: state.focus
+                  value: password
+            else:
+              - if:
+                  condition: { equals: [ state.focus, password ] }
+                  then:
+                    - set:
+                        path: state.focus
+                        value: passwordConfirm
+                  else:
+                    - if:
+                        condition: { equals: [ state.focus, passwordConfirm ] }
+                        then:
+                          - set:
+                              path: state.focus
+                              value: rootMode
+                        else:
+                          - if:
+                              condition: { equals: [ state.focus, rootMode ] }
+                              then:
+                                - if:
+                                    condition: { equals: [ state.rootPasswordModeSelected, 1 ] }
+                                    then:
+                                      - set:
+                                          path: state.focus
+                                          value: rootPassword
+                                    else:
+                                      - set:
+                                          path: state.focus
+                                          value: hostname
+                              else:
+                                - if:
+                                    condition: { equals: [ state.focus, rootPassword ] }
+                                    then:
+                                      - set:
+                                          path: state.focus
+                                          value: rootPasswordConfirm
+                                    else:
+                                      - if:
+                                          condition: { equals: [ state.focus, rootPasswordConfirm ] }
+                                          then:
+                                            - set:
+                                                path: state.focus
+                                                value: hostname
+                                          else:
+                                            - if:
+                                                condition:
+                                                  any:
+                                                    - empty: state.username
+                                                    - empty: state.password
+                                                    - empty: state.passwordConfirm
+                                                    - empty: state.hostname
+                                                then:
+                                                  - set:
+                                                      path: state.status
+                                                      value: 用户名、用户密码、确认密码和主机名都不能为空
+                                                else:
+                                                  - if:
+                                                      condition: { notEquals: [ state.password, state.passwordConfirm ] }
+                                                      then:
+                                                        - set:
+                                                            path: state.status
+                                                            value: 两次输入的用户密码不一致
+                                                      else:
+                                                        - if:
+                                                            condition: { equals: [ state.rootPasswordModeSelected, 1 ] }
+                                                            then:
+                                                              - if:
+                                                                  condition:
+                                                                    any:
+                                                                      - empty: state.rootPassword
+                                                                      - empty: state.rootPasswordConfirm
+                                                                  then:
+                                                                    - set:
+                                                                        path: state.status
+                                                                        value: root 密码和确认密码不能为空
+                                                                  else:
+                                                                    - if:
+                                                                        condition: { notEquals: [ state.rootPassword, state.rootPasswordConfirm ] }
+                                                                        then:
+                                                                          - set:
+                                                                              path: state.status
+                                                                              value: 两次输入的 root 密码不一致
+                                                                        else:
+                                                                          - set:
+                                                                              path: data.install.newUser.name
+                                                                              value: { bind: state.username }
+                                                                          - set:
+                                                                              path: data.install.newUser.password
+                                                                              value: { bind: state.password }
+                                                                          - set:
+                                                                              path: data.install.rootPassword
+                                                                              value: { bind: state.rootPassword }
+                                                                          - set:
+                                                                              path: data.install.rootPasswordSameAsUser
+                                                                              value: false
+                                                                          - set:
+                                                                              path: data.install.hostname
+                                                                              value: { bind: state.hostname }
+                                                                          - set:
+                                                                              path: data.install.userReady
+                                                                              value: true
+                                                                          - set:
+                                                                              path: state.saved
+                                                                              value: true
+                                                                          - set:
+                                                                              path: state.status
+                                                                              value: 用户、root 密码和主机名已保存，可以进入后续安装步骤
+                                                            else:
+                                                              - set:
+                                                                  path: data.install.newUser.name
+                                                                  value: { bind: state.username }
+                                                              - set:
+                                                                  path: data.install.newUser.password
+                                                                  value: { bind: state.password }
+                                                              - set:
+                                                                  path: data.install.rootPassword
+                                                                  value: { bind: state.password }
+                                                              - set:
+                                                                  path: data.install.rootPasswordSameAsUser
+                                                                  value: true
+                                                              - set:
+                                                                  path: data.install.hostname
+                                                                  value: { bind: state.hostname }
+                                                              - set:
+                                                                  path: data.install.userReady
+                                                                  value: true
+                                                              - set:
+                                                                  path: state.saved
+                                                                  value: true
+                                                              - set:
+                                                                  path: state.status
+                                                                  value: 用户、root 密码和主机名已保存，可以进入后续安装步骤
+    on:
+      enter:
+        - set:
+            path: state.username
+            value: { bind: data.install.newUser.name }
+        - set:
+            path: state.password
+            value: { bind: data.install.newUser.password }
+        - set:
+            path: state.rootPassword
+            value: { bind: data.install.rootPassword }
+        - set:
+            path: state.rootPasswordConfirm
+            value: { bind: data.install.rootPassword }
+        - set:
+            path: state.hostname
+            value: { bind: data.install.hostname }
+        - if:
+            condition: { equals: [ data.install.rootPasswordSameAsUser, false ] }
+            then:
+              - set:
+                  path: state.rootPasswordModeSelected
+                  value: 1
+  bye:
+    title: 真的要离开吗 >.<
+    state:
+      {
+        local: { item: [ { title: 1. 是的, done: false }, { title: 2. 补药, done: false } ] },
+        selected: 0
+      }
+    layout:
+      type: column
+      children:
+        [
+          {
+              type: panel,
+              title: "真的要离开吗 >.<",
+              child:
+                {
+                  type: list,
+                  items: state.local.item,
+                  selected: state.selected,
+                  label: "{{ item.title }}"
+                }
+            },
+          { type: text, value: ↑/↓ 选择   Enter 选择   Esc 返回, style: muted }
+        ]
+    keys:
+      up:
+        - move:
+            path: state.selected
+            by: -1
+            list: state.local.item
+      down:
+        - move:
+            path: state.selected
+            by: 1
+            list: state.local.item
+      enter:
+        - if:
+            condition: { equals: [ $state.selected, 0 ] }
+            then:
+              - quit: 0
+            else:
+              - pop: {}
+      escape:
+        - pop: {}
+i18n:
+  locale: zh-CN
+  fallback: zh-CN
+  locales:
+    zh-CN: locales/zh-CN.yaml
+    zh-CN_ba: locales/zh-CN_ba.yaml

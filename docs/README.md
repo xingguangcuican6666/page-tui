@@ -25,6 +25,7 @@
 11. [11 - 常见问题与排错](./11-troubleshooting.md)
 12. [12 - 完整项目模板](./12-full-example.md)
 13. [13 - VS Code 扩展](./13-vscode-extension.md)
+14. [14 - 外部语言模块与运行时切换](./14-internationalization.md)
 
 ## 最重要的心智模型
 
@@ -87,6 +88,7 @@ const { createApp, Page, ui } = require("page-tui");
 - YAML 或 JSON manifest
 - 内联页面定义
 - 从独立 YAML / JSON 文件加载页面
+- 从独立 YAML / JSON 文件加载语言模块并按变量切换语言
 - data、state、params、item、key 变量路径
 - 文本模板和少量模板函数
 - column、row、panel、list、text、input、divider、spacer

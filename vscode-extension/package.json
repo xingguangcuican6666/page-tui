@@ -2,7 +2,7 @@
   "name": "page-tui-vscode",
   "displayName": "Page TUI",
   "description": "为 Page TUI YAML 页面提供可视化编辑、补全、悬停说明、校验、实时预览、模板和运行命令。",
-  "version": "0.2.14",
+  "version": "0.2.28",
   "publisher": "xingguangcuican",
   "license": "MIT",
   "main": "./extension.js",
@@ -38,8 +38,12 @@
     "directory": "vscode-extension"
   },
   "scripts": {
+    "build:webview": "node scripts/build-webview.js",
+    "smoke:webview": "node scripts/smoke-workflow.js",
+    "smoke:visual": "node scripts/smoke-visual-editor.js",
     "test": "node --test test/*.test.js",
-    "package": "npx @vscode/vsce package"
+    "vscode:prepublish": "npm run build:webview",
+    "package": "npm run build:webview && npx @vscode/vsce package"
   },
   "dependencies": {
     "yaml": "^2.8.1"
@@ -107,12 +111,24 @@
         "viewType": "pageTui.visualEditor",
         "displayName": "Page TUI 可视化编辑器",
         "selector": [
-          { "filenamePattern": "**/app.yaml" },
-          { "filenamePattern": "**/app.yml" },
-          { "filenamePattern": "**/*.page.yaml" },
-          { "filenamePattern": "**/*.page.yml" },
-          { "filenamePattern": "**/ui/pages/**/*.yaml" },
-          { "filenamePattern": "**/ui/pages/**/*.yml" }
+          {
+            "filenamePattern": "**/app.yaml"
+          },
+          {
+            "filenamePattern": "**/app.yml"
+          },
+          {
+            "filenamePattern": "**/*.page.yaml"
+          },
+          {
+            "filenamePattern": "**/*.page.yml"
+          },
+          {
+            "filenamePattern": "**/ui/pages/**/*.yaml"
+          },
+          {
+            "filenamePattern": "**/ui/pages/**/*.yml"
+          }
         ],
         "priority": "option"
       }
@@ -225,5 +241,13 @@
         }
       }
     }
+  },
+  "devDependencies": {
+    "@xyflow/react": "^12.11.2",
+    "esbuild": "^0.28.1",
+    "lucide-react": "^1.28.0",
+    "playwright": "^1.62.1",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
   }
 }

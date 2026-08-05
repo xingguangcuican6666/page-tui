@@ -1,0 +1,8 @@
+app:
+  title: 多语言示例
+  heading: Page TUI 外部语言模块
+  greeting: "你好，{{ params.name }}"
+  current: 当前语言
+  choose: 选择界面语言
+  placeholder: 这个占位文字也会随语言变化
+  help: 使用上下方向键选择，按 Enter 切换语言，按 q 退出

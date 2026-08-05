@@ -135,7 +135,7 @@ text 会自动换行。中文和宽字符会按终端显示宽度计算。
   placeholder: "请输入标题"
 ~~~
 
-input 本身只是显示绑定值和光标。要让它能输入，必须配置：
+input 默认会把普通字符追加到 bind 绑定的变量，并用 backspace 删除末尾字符。只有需要自定义输入行为时，才需要显式配置：
 
 ~~~yaml
 keys:
@@ -155,7 +155,10 @@ keys:
 - bind：输入值的路径。
 - value：不使用 bind 时的初始显示值。
 - placeholder：值为空时显示的提示。
+- placeholderStyle：占位提示的样式，默认 muted；实际输入内容默认使用 input 样式。
 - cursor：是否显示 ▌，默认 true。
+- mask：是否隐藏输入内容；`true` 显示为圆点，也可以填写自定义掩码字符。
+- focus：多个 input 同时存在时，满足条件的 input 接收输入。
 - style：输入文字的样式。
 
 ## 5. column
@@ -256,6 +259,72 @@ row 会在水平方向排列子组件。
     type: list
     items: data.tasks
 ~~~
+
+### popup：居中弹窗
+
+popup 会在当前布局区域中居中绘制一个弹窗面板，适合确认框、提示和简单表单：
+
+~~~yaml
+- type: popup
+  title: "确认"
+  width: 40
+  height: 8
+  message: "确定继续吗？"
+~~~
+
+也可以像 panel 一样使用 child 或 children：
+
+~~~yaml
+- type: popup
+  title: "输入"
+  width: 44
+  height: 10
+  children:
+    - type: text
+      value: "请输入名称"
+    - type: input
+      bind: state.name
+~~~
+
+popup 支持 title、message、width、height、child、children、padding、border、borderStyle、titleStyle 和 visible。
+
+### progress：进度条
+
+progress 显示一个可绑定状态的单行进度条：
+
+~~~yaml
+state:
+  progress: 35
+
+layout:
+  type: progress
+  bind: state.progress
+  max: 100
+  label: "下载"
+~~~
+
+命令运行期间可以在 onLine 中更新绑定值，页面会立即重绘：
+
+~~~yaml
+- call:
+    command: ./download.sh
+    wait: false
+    onLine:
+      - set:
+          path: state.progress
+          value:
+            bind: key.value
+~~~
+
+progress 支持以下属性：
+
+- bind：当前值的变量路径。
+- value：不使用 bind 时的固定值。
+- max：最大值，默认 100。
+- label：进度条前的文字。
+- showValue：是否显示百分比，默认 true。
+- filled、empty：已完成和未完成部分使用的字符。
+- style、visible：样式和显示条件。
 
 ## 8. list
 

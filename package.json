@@ -12,9 +12,14 @@
     "node": ">=18"
   },
   "scripts": {
+    "build": "node scripts/build-sea.js",
+    "build:sea": "node scripts/build-sea.js",
     "start": "node src/loader.js",
     "test": "node --test",
     "test:extension": "npm --prefix vscode-extension test",
     "package:extension": "npm --prefix vscode-extension run package"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.1"
   }
 }

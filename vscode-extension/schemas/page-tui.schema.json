@@ -13,6 +13,9 @@
       "type": "object",
       "description": "所有页面共享的数据。"
     },
+    "i18n": {
+      "$ref": "#/definitions/i18n"
+    },
     "pages": {
       "type": "object",
       "description": "页面注册表。",
@@ -42,12 +45,83 @@
           ]
         },
         {
-          "type": "object"
+          "type": "object",
+          "properties": {
+            "bind": {
+              "type": "string"
+            },
+            "template": {
+              "type": "string"
+            },
+            "t": {
+              "$ref": "#/definitions/value",
+              "description": "语言文件中的翻译键。"
+            },
+            "i18n": {
+              "$ref": "#/definitions/value",
+              "description": "t 的别名。"
+            },
+            "with": {
+              "$ref": "#/definitions/value",
+              "description": "传入翻译模板的 params 参数。"
+            },
+            "params": {
+              "$ref": "#/definitions/value",
+              "description": "with 的别名。"
+            }
+          },
+          "additionalProperties": true
         },
         {
           "type": "array"
         }
       ]
+    },
+    "i18n": {
+      "type": "object",
+      "description": "外部语言模块和当前语言变量。",
+      "properties": {
+        "locale": {
+          "$ref": "#/definitions/value",
+          "description": "当前语言代码或 data/state/params 变量绑定。"
+        },
+        "language": {
+          "$ref": "#/definitions/value",
+          "description": "locale 的别名。"
+        },
+        "fallback": {
+          "type": "string",
+          "description": "翻译缺失时使用的默认语言。"
+        },
+        "default": {
+          "type": "string",
+          "description": "fallback 的别名。"
+        },
+        "locales": {
+          "$ref": "#/definitions/localeSources"
+        },
+        "files": {
+          "$ref": "#/definitions/localeSources"
+        },
+        "sources": {
+          "$ref": "#/definitions/localeSources"
+        }
+      },
+      "additionalProperties": true
+    },
+    "localeSources": {
+      "type": "object",
+      "description": "语言代码到外部 YAML/JSON 文件或内联翻译对象的映射。",
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "object"
+          }
+        ]
+      }
     },
     "style": {
       "oneOf": [
@@ -106,6 +180,8 @@
                 "column",
                 "row",
                 "panel",
+                "popup",
+                "progress",
                 "list",
                 "divider",
                 "spacer"
@@ -114,8 +190,17 @@
             "value": {
               "$ref": "#/definitions/value"
             },
+            "message": {
+              "$ref": "#/definitions/value"
+            },
             "bind": {
               "type": "string"
+            },
+            "placeholder": {
+              "$ref": "#/definitions/value"
+            },
+            "placeholderStyle": {
+              "$ref": "#/definitions/style"
             },
             "template": {
               "type": "string"
@@ -137,6 +222,18 @@
               "$ref": "#/definitions/value"
             },
             "label": {
+              "$ref": "#/definitions/value"
+            },
+            "max": {
+              "$ref": "#/definitions/value"
+            },
+            "showValue": {
+              "$ref": "#/definitions/value"
+            },
+            "filled": {
+              "$ref": "#/definitions/value"
+            },
+            "empty": {
               "$ref": "#/definitions/value"
             },
             "description": {
@@ -176,10 +273,10 @@
               "type": "string"
             },
             "marker": {
-              "type": "string"
+              "$ref": "#/definitions/value"
             },
             "normalMarker": {
-              "type": "string"
+              "$ref": "#/definitions/value"
             },
             "selectedStyle": {
               "type": "string"
@@ -191,10 +288,16 @@
               "type": "string"
             },
             "emptyText": {
-              "type": "string"
+              "$ref": "#/definitions/value"
             },
             "emptyStyle": {
               "type": "string"
+            },
+            "width": {
+              "type": [
+                "number",
+                "string"
+              ]
             },
             "height": {
               "type": [
@@ -209,10 +312,19 @@
               ]
             },
             "character": {
-              "type": "string"
+              "$ref": "#/definitions/value"
             },
             "cursor": {
               "type": "boolean"
+            },
+            "mask": {
+              "type": [
+                "boolean",
+                "string"
+              ]
+            },
+            "focus": {
+              "$ref": "#/definitions/value"
             }
           },
           "additionalProperties": true
@@ -285,7 +397,7 @@
               "$ref": "#/definitions/value"
             },
             "call": {
-              "$ref": "#/definitions/value"
+              "$ref": "#/definitions/callAction"
             },
             "refresh": {
               "$ref": "#/definitions/value"
@@ -297,6 +409,91 @@
               "$ref": "#/definitions/ifAction"
             },
             "then": {
+              "$ref": "#/definitions/actionList"
+            }
+          },
+          "additionalProperties": true
+        }
+      ]
+    },
+    "callAction": {
+      "oneOf": [
+        {
+          "type": "string",
+          "description": "调用启动器注册的 service 名称。"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "service": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "with": {
+              "$ref": "#/definitions/value"
+            },
+            "sh": {
+              "$ref": "#/definitions/value",
+              "description": "通过当前 shell 执行的命令字符串。"
+            },
+            "command": {
+              "$ref": "#/definitions/value",
+              "description": "直接执行的外部命令。"
+            },
+            "args": {
+              "$ref": "#/definitions/value"
+            },
+            "cwd": {
+              "$ref": "#/definitions/value"
+            },
+            "env": {
+              "type": "object"
+            },
+            "stdio": {
+              "$ref": "#/definitions/value"
+            },
+            "blocking": {
+              "$ref": "#/definitions/value"
+            },
+            "wait": {
+              "$ref": "#/definitions/value"
+            },
+            "result": {
+              "type": "string"
+            },
+            "stdout": {
+              "type": "string"
+            },
+            "stderr": {
+              "type": "string"
+            },
+            "lines": {
+              "type": "string"
+            },
+            "stderrLines": {
+              "type": "string"
+            },
+            "json": {
+              "type": "string"
+            },
+            "code": {
+              "type": "string"
+            },
+            "check": {
+              "$ref": "#/definitions/value"
+            },
+            "interpreter": {
+              "$ref": "#/definitions/value"
+            },
+            "maxBuffer": {
+              "$ref": "#/definitions/value"
+            },
+            "onLine": {
+              "$ref": "#/definitions/actionList"
+            },
+            "onExit": {
               "$ref": "#/definitions/actionList"
             }
           },

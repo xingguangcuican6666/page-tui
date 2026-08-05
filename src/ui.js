@@ -59,6 +59,17 @@ function panel(child, options = {}) {
   return node("panel", { child: asNode(child) || text(""), options });
 }
 
+function popup(child, options = {}) {
+  return node("popup", { child: asNode(child) || text(""), options });
+}
+
+function progress(value = 0, options = {}) {
+  return node("progress", {
+    value: Number(value) || 0,
+    options
+  });
+}
+
 function list(items = [], options = {}) {
   const normalized = items.map((item, index) => {
     if (item && typeof item === "object" && !Array.isArray(item)) {
@@ -156,6 +167,12 @@ function naturalHeight(view, width) {
         Math.max(1, width - (hasBorder ? 2 : 0) - padding.left - padding.right)
       ) - (hasBorder ? 0 : 2);
     }
+    case "popup": {
+      const inner = panel(view.child, view.options);
+      return naturalHeight(inner, width);
+    }
+    case "progress":
+      return 1;
     case "column": {
       const padding = normalizePadding(view.options.padding);
       const contentWidth = Math.max(1, width - padding.left - padding.right);
@@ -205,6 +222,15 @@ function naturalWidth(view) {
         hasBorder ? titleWidth : 0,
         naturalWidth(view.child)
       );
+    }
+    case "popup": {
+      const inner = panel(view.child, view.options);
+      return naturalWidth(inner);
+    }
+    case "progress": {
+      const label = view.options.label ? `${view.options.label} ` : "";
+      const suffix = view.options.showValue === false ? "" : " 100%";
+      return stringWidth(label) + stringWidth(suffix) + 4;
     }
     case "column": {
       const padding = normalizePadding(view.options.padding);
@@ -430,6 +456,49 @@ function renderPanel(view, width, height, context) {
   return fitLines(lines, width, height);
 }
 
+function renderPopup(view, width, height, context) {
+  const inner = panel(view.child, view.options);
+  const preferredWidth = Number(view.options.width);
+  const preferredHeight = Number(view.options.height);
+  const contentWidth = Math.max(1, Math.min(
+    width,
+    Number.isFinite(preferredWidth) && preferredWidth > 0 ? preferredWidth : naturalWidth(inner)
+  ));
+  const contentHeight = Math.max(1, Math.min(
+    height,
+    Number.isFinite(preferredHeight) && preferredHeight > 0 ? preferredHeight : naturalHeight(inner, contentWidth)
+  ));
+  const popupLines = renderPanel(inner, contentWidth, contentHeight, context);
+  const left = Math.max(0, Math.floor((width - contentWidth) / 2));
+  const top = Math.max(0, Math.floor((height - contentHeight) / 2));
+  const lines = Array.from({ length: height }, () => blankLine(width));
+
+  for (let index = 0; index < popupLines.length && top + index < height; index += 1) {
+    lines[top + index] = `${blankLine(left)}${popupLines[index]}${blankLine(Math.max(0, width - left - contentWidth))}`;
+  }
+
+  return fitLines(lines, width, height);
+}
+
+function renderProgress(view, width, height, context) {
+  const max = Number(view.options.max);
+  const limit = Number.isFinite(max) && max > 0 ? max : 100;
+  const value = Math.min(limit, Math.max(0, Number(view.value) || 0));
+  const ratio = value / limit;
+  const label = view.options.label ? `${String(view.options.label)} ` : "";
+  const suffix = view.options.showValue === false
+    ? ""
+    : ` ${Math.round(ratio * 100)}%`;
+  const available = Math.max(1, width - stringWidth(label) - stringWidth(suffix) - 2);
+  const filledWidth = Math.round(available * ratio);
+  const filled = String(view.options.filled || "█").slice(0, 1) || "█";
+  const empty = String(view.options.empty || "░").slice(0, 1) || "░";
+  const bar = `[${filled.repeat(filledWidth)}${empty.repeat(Math.max(0, available - filledWidth))}]`;
+  return fitLines([
+    paint(`${label}${bar}${suffix}`, width, view.options.style || "primary", context)
+  ], width, height);
+}
+
 function renderNode(view, width, height, context) {
   const normalizedWidth = Math.max(0, Number(width) || 0);
   const normalizedHeight = Math.max(0, Number(height) || 0);
@@ -454,6 +523,10 @@ function renderNode(view, width, height, context) {
       return renderRow(view, normalizedWidth, normalizedHeight, context);
     case "panel":
       return renderPanel(view, normalizedWidth, normalizedHeight, context);
+    case "popup":
+      return renderPopup(view, normalizedWidth, normalizedHeight, context);
+    case "progress":
+      return renderProgress(view, normalizedWidth, normalizedHeight, context);
     default:
       return fitLines([blankLine(normalizedWidth)], normalizedWidth, normalizedHeight);
   }
@@ -473,6 +546,8 @@ module.exports = {
   naturalHeight,
   naturalWidth,
   panel,
+  popup,
+  progress,
   renderView,
   row,
   spacer,

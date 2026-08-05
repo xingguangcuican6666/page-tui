@@ -1,7 +1,8 @@
 const crypto = require("node:crypto");
 const YAML = require("yaml");
+const { actionsToWorkflow } = require("./workflow-model");
 
-const COMPONENTS = ["text", "input", "column", "row", "panel", "list", "divider", "spacer"];
+const COMPONENTS = ["text", "input", "column", "row", "panel", "popup", "progress", "list", "divider", "spacer"];
 const ACTIONS = ["set", "move", "toggle", "remove", "append", "backspace", "push", "go", "replace", "reset", "pop", "quit", "call", "refresh", "notify", "if"];
 const EVENTS = ["up", "down", "left", "right", "enter", "escape", "space", "backspace", "character"];
 const LIFECYCLE_EVENTS = ["enter", "resume"];
@@ -31,14 +32,15 @@ const ACTION_FIELDS = {
   reset: ["page", "params"],
   pop: ["result"],
   quit: ["code"],
-  call: ["service", "with"],
+  call: ["service", "with", "sh", "command", "args", "cwd", "env", "stdio", "blocking", "wait", "result", "stdout", "stderr", "lines", "stderrLines", "json", "code", "check", "interpreter", "maxBuffer", "onLine", "onExit"],
   refresh: [],
   notify: ["value"],
   if: ["condition", "then", "else"]
 };
-const ACTION_NUMBER_FIELDS = new Set(["by", "code"]);
-const ACTION_JSON_FIELDS = new Set(["params", "with", "condition", "then", "else"]);
-const ACTION_VALUE_FIELDS = new Set(["value", "result", "index"]);
+const ACTION_NUMBER_FIELDS = new Set(["by", "code", "maxBuffer"]);
+const ACTION_JSON_FIELDS = new Set(["params", "with", "args", "env", "condition", "then", "else", "onLine", "onExit"]);
+const ACTION_VALUE_FIELDS = new Set(["value", "result", "index", "blocking", "wait", "check"]);
+const ACTION_NAVIGATION_FIELDS = new Set(["page", "route"]);
 
 function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -88,8 +90,8 @@ function layoutPreview(node, type, childCount) {
   for (const key of [
     "value", "template", "bind", "title", "placeholder", "style", "itemStyle",
     "selectedStyle", "gap", "padding", "flex", "items", "selected", "label",
-    "description", "character", "border", "borderStyle", "titleStyle", "height",
-    "lines", "visible"
+    "description", "message", "character", "border", "borderStyle", "titleStyle",
+    "width", "height", "lines", "max", "showValue", "filled", "empty", "visible"
   ]) {
     if (Object.prototype.hasOwnProperty.call(node, key)) {
       preview[key] = layoutPreviewValue(node[key]);
@@ -180,6 +182,121 @@ function pageEntries(root, manifest, externalPages = {}) {
   });
 }
 
+function i18nSourceInfo(root) {
+  const definition = isObject(root?.i18n) ? root.i18n : {};
+  const sourceField = ["locales", "files", "sources"]
+    .find((field) => isObject(definition[field])) || "locales";
+  return {
+    definition,
+    sourceField,
+    sources: isObject(definition[sourceField]) ? definition[sourceField] : {}
+  };
+}
+
+function parseLocaleSource(source) {
+  if (typeof source !== "string") return { value: undefined, error: "语言文件尚未加载。" };
+  try {
+    const document = YAML.parseDocument(source, { prettyErrors: false });
+    if (document.errors?.length) {
+      return { value: undefined, error: document.errors[0].message || "语言文件 YAML 语法错误。" };
+    }
+    const value = document.toJS({ mapAsMap: false });
+    if (!isObject(value)) return { value: undefined, error: "语言文件的根节点必须是对象。" };
+    return { value };
+  } catch (error) {
+    return { value: undefined, error: error.message || String(error) };
+  }
+}
+
+function flattenTranslations(value, basePath = [], output = []) {
+  if (isObject(value)) {
+    const entries = Object.entries(value);
+    if (!entries.length && basePath.length) {
+      output.push({
+        key: basePath.join("."),
+        path: basePath,
+        type: "object",
+        value,
+        preview: "{}"
+      });
+    }
+    for (const [key, child] of entries) {
+      flattenTranslations(child, basePath.concat(key), output);
+    }
+    return output;
+  }
+  if (!basePath.length) return output;
+  const preview = safeString(value, "空");
+  output.push({
+    key: basePath.join("."),
+    path: basePath,
+    type: Array.isArray(value) ? "array" : value === null ? "null" : typeof value,
+    value,
+    preview: preview.length > 100 ? `${preview.slice(0, 97)}...` : preview
+  });
+  return output;
+}
+
+function buildI18nModel(root, options = {}) {
+  const { definition, sourceField, sources } = i18nSourceInfo(root);
+  const externalLocales = options.externalLocales || {};
+  const locales = Object.entries(sources).map(([code, source]) => {
+    const external = typeof source === "string";
+    const externalInfo = external ? externalLocales[code] : undefined;
+    const externalSource = typeof externalInfo === "string"
+      ? externalInfo
+      : externalInfo?.source;
+    const parsed = external
+      ? parseLocaleSource(externalSource)
+      : isObject(source)
+        ? { value: source }
+        : { value: undefined, error: "语言必须指向对象或外部文件。" };
+    const messages = parsed.value;
+    const translations = messages ? flattenTranslations(messages) : [];
+    return {
+      code,
+      source,
+      external,
+      uri: typeof externalInfo?.uri === "string" ? externalInfo.uri : externalInfo?.uri?.toString(),
+      fileName: externalInfo?.fileName || (external ? source : undefined),
+      available: !external || typeof externalSource === "string",
+      error: externalInfo?.error || parsed.error,
+      messages,
+      translations,
+      entryCount: translations.length
+    };
+  });
+  const explicitLocale = typeof options.selectedLocale === "string"
+    && locales.some((locale) => locale.code === options.selectedLocale);
+  const selected = locales.find((locale) => locale.code === options.selectedLocale) || locales[0];
+  const requestedTranslationPath = Array.isArray(options.selectedTranslationPath)
+    ? options.selectedTranslationPath
+    : undefined;
+  const selectedTranslation = selected && requestedTranslationPath?.length
+    ? selected.translations.find((entry) => samePath(entry.path, requestedTranslationPath))
+    : undefined;
+
+  return {
+    configured: isObject(root?.i18n),
+    locale: definition.locale,
+    fallback: definition.fallback ?? definition.default,
+    sourceField,
+    locales: locales.map(({ messages, translations, ...locale }) => locale),
+    selectedLocale: selected?.code,
+    selectedLocaleExplicit: explicitLocale,
+    selectedLocaleExternal: selected?.external || false,
+    selectedLocaleUri: selected?.uri,
+    selectedLocaleFileName: selected?.fileName,
+    selectedLocaleAvailable: selected?.available !== false,
+    selectedLocaleError: selected?.error,
+    translations: selected?.translations || [],
+    selectedTranslationPath: selectedTranslation?.path || [],
+    selectedTranslationKey: selectedTranslation?.key,
+    selectedTranslationType: selectedTranslation?.type,
+    selectedTranslationValue: selectedTranslation?.value
+  };
+}
+
 function actionModel(page, basePath) {
   const events = [];
   for (const source of ["keys", "on"]) {
@@ -192,6 +309,7 @@ function actionModel(page, basePath) {
         source,
         event,
         path: eventPath,
+        isList,
         actions: list.map((action, index) => ({
           label: describeAction(action),
           path: isList ? eventPath.concat(index) : eventPath,
@@ -285,14 +403,18 @@ function componentInsertPath(root, layoutPath, selectedPath) {
   if (Array.isArray(selected)) return selectedPath;
   if (isObject(selected) && (Array.isArray(selected.children)
     || selected.type === "column"
-    || selected.type === "row")) {
+    || selected.type === "row"
+    || selected.type === "panel"
+    || selected.type === "popup")) {
     return selectedPath.concat("children");
   }
   const layout = getAt(root, layoutPath);
   if (Array.isArray(layout)) return layoutPath;
   if (isObject(layout) && (Array.isArray(layout.children)
     || layout.type === "column"
-    || layout.type === "row")) {
+    || layout.type === "row"
+    || layout.type === "panel"
+    || layout.type === "popup")) {
     return layoutPath.concat("children");
   }
   return null;
@@ -326,6 +448,7 @@ function buildVisualModel(source, requestedPage, requestedPath = [], options = {
 
   const manifest = isObject(root.pages);
   const entries = pageEntries(root, manifest, options.externalPages || {});
+  const i18n = buildI18nModel(root, options);
   const selected = entries.find((item) => item.name === requestedPage) || entries[0];
   if (!selected) {
     return {
@@ -334,10 +457,16 @@ function buildVisualModel(source, requestedPage, requestedPath = [], options = {
       pages: [],
       data: [],
       actions: { events: [] },
+      workflows: [],
+      i18n,
       selectedPage: undefined,
       selectedPath: [],
+      selectedKind: i18n.selectedLocaleExplicit
+        ? (i18n.selectedTranslationPath.length ? "translation" : "locale")
+        : "layout",
       selectedNode: undefined,
-      layoutTree: undefined
+      layoutTree: undefined,
+      variablePaths: variablePaths(root, {})
     };
   }
 
@@ -347,6 +476,19 @@ function buildVisualModel(source, requestedPage, requestedPath = [], options = {
   const layoutPath = basePath.concat("layout");
   const layout = getAt(selectedRoot, layoutPath);
   const actions = actionModel(page, basePath);
+  const workflows = actions.events.map((event) => ({
+    id: `${event.source}.${event.event}`,
+    source: event.source,
+    event: event.event,
+    path: event.path,
+    isList: event.isList,
+    workflow: actionsToWorkflow(event.actions.map((action) => action.value), {
+      source: event.source,
+      event: event.event,
+      path: event.path,
+      isList: event.isList
+    })
+  }));
   const requestedNodeRoot = requestedPath[0] === "data" || requestedPath[0] === "pages"
     ? root
     : selectedRoot;
@@ -358,7 +500,7 @@ function buildVisualModel(source, requestedPage, requestedPath = [], options = {
   const isDataSelection = requestedPath.length > 1 && requestedPath[0] === "data";
   const isStateSelection = requestedPath.length > statePath.length
     && statePath.every((part, index) => requestedPath[index] === part);
-  const selectedKind = selectedAction
+  const pageSelectedKind = selectedAction
     ? "action"
     : isDataSelection
       ? "data"
@@ -369,13 +511,16 @@ function buildVisualModel(source, requestedPage, requestedPath = [], options = {
           && basePath.every((part, index) => requestedPath[index] === part)
           ? "layout"
           : "layout";
-  const selectedPath = selectedKind === "action" || selectedKind === "data" || selectedKind === "state"
+  const selectedPath = pageSelectedKind === "action" || pageSelectedKind === "data" || pageSelectedKind === "state"
     ? requestedPath
     : requestedPath.length > 0
       && (isObject(requestedNode) || Array.isArray(requestedNode))
       && requestedPath.length >= basePath.length
       ? requestedPath
       : layoutPath;
+  const selectedKind = i18n.selectedLocaleExplicit
+    ? (i18n.selectedTranslationPath.length ? "translation" : "locale")
+    : pageSelectedKind;
   const selectedNode = getAt(
     selectedPath[0] === "data" || selectedPath[0] === "pages" ? root : selectedRoot,
     selectedPath
@@ -409,8 +554,10 @@ function buildVisualModel(source, requestedPage, requestedPath = [], options = {
     componentInsertPath: componentInsertPath(selectedRoot, layoutPath, selectedPath),
     data,
     state,
+    i18n,
     variablePaths: variablePaths(root, page),
     actions,
+    workflows,
     componentTypes: COMPONENTS,
     stylePresets: STYLE_PRESETS,
     conditionTypes: CONDITION_TYPES,
@@ -422,7 +569,7 @@ function buildVisualModel(source, requestedPage, requestedPath = [], options = {
     actionJsonFields: Array.from(ACTION_JSON_FIELDS),
     actionValueFields: Array.from(ACTION_VALUE_FIELDS),
     actionPathFields: ["path", "list", "within", "index"],
-    actionRouteFields: ["page", "route"]
+    actionNavigationFields: Array.from(ACTION_NAVIGATION_FIELDS)
   };
 }
 
@@ -443,6 +590,7 @@ function canAppendIntoLayoutNode(node) {
   if (!YAML.isMap(node)) return false;
   const type = nodeToValue(node.get("type"));
   return type === "panel"
+    || type === "popup"
     || type === "column"
     || type === "row"
     || YAML.isSeq(node.get("children"));
@@ -456,7 +604,7 @@ function appendIntoLayoutNode(node, item) {
   if (!YAML.isMap(node)) return false;
 
   const type = nodeToValue(node.get("type"));
-  if (type === "panel") {
+  if (type === "panel" || type === "popup") {
     const child = node.get("child");
     if (child !== undefined) {
       if (YAML.isMap(child)) {
@@ -595,18 +743,77 @@ function applyVisualOperation(source, operation) {
   return document.toString();
 }
 
+function applyJsonOperation(source, operation) {
+  const text = String(source || "{}");
+  let root;
+  try {
+    root = JSON.parse(text);
+  } catch (error) {
+    throw new Error(`JSON 语法错误：${error.message || String(error)}`);
+  }
+  if (!isObject(root)) throw new Error("JSON 语言文件的根节点必须是对象。");
+  const path = Array.isArray(operation?.path) ? operation.path : [];
+  if (!path.length) throw new Error("不能替换整个 JSON 文档根节点。");
+  if (operation.type !== "set" && operation.type !== "delete") {
+    throw new Error("JSON 语言文件只支持设置和删除翻译键。");
+  }
+
+  let parent = root;
+  for (let index = 0; index < path.length - 1; index += 1) {
+    const part = path[index];
+    const child = Object.prototype.hasOwnProperty.call(parent, part) ? parent[part] : undefined;
+    if (!isObject(child) && !Array.isArray(child)) {
+      if (operation.type === "delete") return text;
+      Object.defineProperty(parent, part, {
+        value: typeof path[index + 1] === "number" ? [] : {},
+        enumerable: true,
+        configurable: true,
+        writable: true
+      });
+    }
+    parent = parent[part];
+  }
+  const key = path[path.length - 1];
+  if (operation.type === "set") {
+    Object.defineProperty(parent, key, {
+      value: operation.value,
+      enumerable: true,
+      configurable: true,
+      writable: true
+    });
+  } else if (Array.isArray(parent) && Number.isInteger(Number(key))) {
+    parent.splice(Number(key), 1);
+  } else {
+    delete parent[key];
+  }
+
+  const indentationMatch = text.match(/\n([ \t]+)\S/);
+  const indentation = indentationMatch?.[1]?.includes("\t")
+    ? "\t"
+    : Math.min(indentationMatch?.[1]?.length || 2, 10);
+  return `${JSON.stringify(root, null, indentation)}\n`;
+}
+
 function htmlJson(value) {
   return JSON.stringify(value).replace(/</g, "\\u003c");
 }
 
-function createVisualEditorHtml(model) {
+function createVisualEditorHtml(model, resources = {}) {
   const nonce = crypto.randomBytes(16).toString("hex");
   const initial = htmlJson(model);
+  const cspSource = resources.cspSource ? ` ${String(resources.cspSource)}` : "";
+  const workflowStyle = resources.workflowStyleUri
+    ? `<link rel="stylesheet" href="${String(resources.workflowStyleUri)}">`
+    : "";
+  const workflowScript = resources.workflowScriptUri
+    ? `<script nonce="${nonce}" src="${String(resources.workflowScriptUri)}"></script>`
+    : "";
   return `<!doctype html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'${cspSource}; script-src 'nonce-${nonce}'${cspSource};">
+${workflowStyle}
 <style>
 :root { color-scheme: light dark; --border: var(--vscode-panel-border); --muted: var(--vscode-descriptionForeground); --card: var(--vscode-editorWidget-background); --accent: var(--vscode-textLink-foreground); }
 * { box-sizing: border-box; }
@@ -618,19 +825,39 @@ button:hover { background: var(--vscode-list-hoverBackground); }
 .toolbar h1 { font-size: 14px; margin: 0 auto 0 0; }
 .toolbar .primary { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border-color: transparent; }
 .workspace { display: grid; grid-template-columns: 210px minmax(280px, 1fr) 310px; height: calc(100vh - 42px); min-height: 480px; }
+.workflow-workspace[hidden] { display: none; }
+.workflow-workspace { position: fixed; z-index: 900; inset: 42px 0 0; display: grid; grid-template-rows: 40px minmax(0, 1fr); min-height: 480px; overflow: hidden; background: var(--vscode-editor-background); }
+.workflow-host-bar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+.workflow-host-bar strong { margin-right: auto; }
+#workflow-root { width: 100%; height: 100%; min-height: 0; }
 aside, main { min-width: 0; overflow: auto; }
 aside { border-right: 1px solid var(--border); padding: 10px; }
 aside.inspector { border-right: 0; border-left: 1px solid var(--border); }
 section { margin-bottom: 18px; }
 h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 7px; }
-.page-list, .data-list, .action-list { display: grid; gap: 4px; }
+.page-list, .data-list, .action-list, .locale-list, .translation-list { display: grid; gap: 4px; }
 .page-row { display: flex; gap: 4px; min-width: 0; }
 .page-row .page-button { flex: 1; min-width: 0; }
+.locale-row { display: flex; gap: 4px; min-width: 0; }
+.locale-row .locale-button { flex: 1; min-width: 0; }
+.locale-button, .translation-button { text-align: left; width: 100%; min-width: 0; }
+.locale-button strong, .translation-button strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.locale-button .subtle, .translation-button .subtle { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.locale-button.active, .translation-button.active { outline: 1px solid var(--accent); background: var(--vscode-list-activeSelectionBackground); }
+.translation-browser { margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--border); }
+.translation-browser > input { width: 100%; min-width: 0; }
+.translation-heading { display: flex; align-items: center; gap: 5px; margin-bottom: 6px; }
+.translation-heading strong { min-width: 0; margin-right: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.translation-list { max-height: 230px; overflow: auto; margin-top: 5px; }
+.stack-form { display: grid; gap: 5px; margin-top: 7px; }
+.stack-form input, .stack-form select, .stack-form textarea, .stack-form button { width: 100%; min-width: 0; }
+.resource-error { margin-top: 6px; color: var(--vscode-errorForeground); font-size: 12px; overflow-wrap: anywhere; }
 .variable-row { display: flex; gap: 4px; min-width: 0; }
 .variable-row .variable-select { flex: 1; min-width: 0; }
 .variable-delete { flex: 0 0 28px; padding-left: 4px; padding-right: 4px; opacity: .72; }
 .variable-delete:hover { opacity: 1; color: var(--vscode-errorForeground); border-color: var(--vscode-errorForeground); }
-.page-button { text-align: left; width: 100%; }
+.page-button { text-align: left; width: 100%; overflow: hidden; }
+.variable-select .subtle { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .page-delete { flex: 0 0 28px; padding-left: 4px; padding-right: 4px; opacity: .72; }
 .page-delete:hover { opacity: 1; color: var(--vscode-errorForeground); border-color: var(--vscode-errorForeground); }
 .page-button.active, .node-button.active { outline: 1px solid var(--accent); background: var(--vscode-list-activeSelectionBackground); }
@@ -667,6 +894,11 @@ h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: v
 .preview-panel { border: 1px solid var(--border); }
 .preview-panel-title { padding: 4px 7px; color: var(--accent); border-bottom: 1px solid var(--border); font-weight: 600; }
 .preview-panel-body { min-height: 25px; padding: 7px; }
+.preview-popup { display: flex; align-items: center; justify-content: center; min-height: 90px; }
+.preview-popup-card { width: min(100%, 220px); border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0, 0, 0, .24); background: var(--card); }
+.preview-progress { display: grid; grid-template-columns: auto minmax(70px, 1fr) auto; align-items: center; gap: 7px; min-height: 28px; }
+.preview-progress-bar { height: 10px; overflow: hidden; border: 1px solid var(--border); background: var(--vscode-input-background); }
+.preview-progress-fill { display: block; height: 100%; background: var(--accent); }
 .preview-list { display: grid; gap: 3px; }
 .preview-list-row { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border: 1px solid transparent; }
 .preview-list-row.selected { border-color: var(--accent); background: var(--vscode-list-activeSelectionBackground); }
@@ -700,6 +932,19 @@ h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: v
 .style-editor { display:grid; gap:6px; min-width:0; }
 .style-editor > .field-combo { margin:0; }
 .style-editor textarea { min-height:90px; }
+.navigation-editor { display:grid; gap:6px; min-width:0; }
+.navigation-editor > .field-combo { margin:0; }
+.navigation-itemat { display:grid; gap:5px; }
+.navigation-itemat label { display:grid; gap:3px; color: var(--muted); font-size:12px; }
+.navigation-advanced { margin-top:2px; }
+.navigation-advanced summary { color: var(--muted); cursor:pointer; font-size:12px; }
+.navigation-advanced textarea { min-height:70px; }
+.localized-editor { display:grid; gap:6px; min-width:0; }
+.localized-editor > .field-combo { margin:0; }
+.localized-translation { display:grid; gap:5px; }
+.localized-translation label { display:grid; gap:3px; color:var(--muted); font-size:12px; }
+.localized-advanced summary { color:var(--muted); cursor:pointer; font-size:12px; }
+.localized-advanced textarea { min-height:70px; }
 .action-branch { display:grid; gap:6px; padding:7px; border:1px solid var(--border); border-radius:4px; background: var(--vscode-editorWidget-background); }
 .action-branch + .action-branch { margin-top:7px; }
 .action-branch-header { display:flex; align-items:center; gap:5px; }
@@ -707,6 +952,10 @@ h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: v
 .branch-action { display:grid; gap:5px; padding:6px; border:1px solid var(--border); border-radius:3px; }
 .branch-action-toolbar { display:flex; gap:5px; }
 .branch-action-toolbar select { flex:1; min-width:0; }
+.branch-action-fields { display:grid; gap:5px; }
+.branch-action-fields .field { margin:2px 0; }
+.branch-action-advanced { margin-top:2px; }
+.branch-action-advanced summary { color: var(--muted); cursor:pointer; font-size:12px; }
 .branch-action textarea { min-height:60px; }
 .field-actions { display:flex; gap:5px; margin-top:10px; }
 .subtle { color: var(--muted); font-size: 12px; }
@@ -718,6 +967,8 @@ h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: v
 .action-row button.action-select { flex:1; border:0; background:transparent; text-align:left; padding:0; }
 .action-row .event { color:var(--accent); min-width:60px; }
 .action-row .action { flex:1; }
+.action-section-heading { display:flex; align-items:center; gap:8px; margin-bottom:7px; }
+.action-section-heading h2 { margin:0 auto 0 0; }
 .banner { padding:10px 12px; border-bottom:1px solid var(--border); color:var(--vscode-errorForeground); }
 @media (max-width: 900px) {
   .workspace { grid-template-columns: minmax(0, 1fr); height: auto; min-height: 0; }
@@ -739,9 +990,10 @@ h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: v
 <datalist id="variable-paths"></datalist>
 <datalist id="page-routes"></datalist>
 <datalist id="style-values">${(model.stylePresets || STYLE_PRESETS).map((name) => `<option value="${name}"></option>`).join("")}</datalist>
-<div class="workspace">
+<div id="layout-workspace" class="workspace">
   <aside>
     <section><h2>页面</h2><div id="pages" class="page-list"></div><div id="page-form"></div></section>
+    <section><h2>翻译文件</h2><div id="locales" class="locale-list"></div><div id="locale-form"></div><div id="translation-browser"></div></section>
     <section><h2>共享数据</h2><div id="data" class="data-list"></div><div id="data-form"></div></section>
     <section><h2>当前页面变量</h2><div id="state" class="data-list"></div><div id="state-form"></div></section>
   </aside>
@@ -749,14 +1001,27 @@ h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: v
     <div class="canvas-header"><strong id="canvas-title">布局</strong><button data-command="new-layout">创建布局</button></div>
     <div id="tree" class="tree"></div>
     <div id="component-tools"></div>
-    <section><h2>按键与动作</h2><div id="actions" class="action-list"></div></section>
+    <section><div class="action-section-heading"><h2>按键与动作</h2><button type="button" data-command="open-workflow">流程图</button></div><div id="actions" class="action-list"></div></section>
   </main>
   <aside class="inspector"><section><h2>属性</h2><div id="inspector"></div></section></aside>
 </div>
+<div id="workflow-workspace" class="workflow-workspace" hidden><div class="workflow-host-bar"><strong>事务流程</strong><button type="button" data-command="close-workflow">返回界面</button></div><div id="workflow-root"></div></div>
 <script nonce="${nonce}">
 const vscode = acquireVsCodeApi();
 let model = ${initial};
+let translationFilter = "";
+window.pageTuiVscode = vscode;
+window.__PAGE_TUI_WORKFLOW_MODEL__ = model;
 
+function isObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function variableKeyParts(value) {
+  const parts = String(value === undefined || value === null ? "" : value)
+    .split(".")
+    .map((part) => part.trim());
+  return parts.length && parts.every((part) => part && !/[.\[\]]/.test(part)) ? parts : [];
+}
 function esc(value) {
   return String(value === undefined || value === null ? "" : value)
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
@@ -770,6 +1035,9 @@ function pretty(value) {
   if (value !== null && typeof value === "object") return JSON.stringify(value);
   return String(value);
 }
+function jsonText(value) {
+  return value === undefined ? "" : JSON.stringify(value);
+}
 function post(operation, targetOverride) {
   const first = Array.isArray(operation?.path) ? operation.path[0] : undefined;
   const target = targetOverride || (["data", "pages", "initial"].includes(first) ? "manifest" : undefined);
@@ -782,6 +1050,8 @@ function componentDefaults(type) {
     column: { type: "column", children: [] },
     row: { type: "row", children: [] },
     panel: { type: "panel", title: "面板", child: { type: "text", value: "内容" } },
+    popup: { type: "popup", title: "提示", width: 40, height: 8, message: "内容" },
+    progress: { type: "progress", bind: "state.progress", max: 100, label: "进度" },
     list: { type: "list", items: "data.items", selected: "state.selected", label: "{{ item.title }}" },
     divider: { type: "divider" },
     spacer: { type: "spacer", height: 1 }
@@ -819,6 +1089,195 @@ function hasOwn(value, key) {
 }
 function isVariableReference(value) {
   return typeof value === "string" && /^(data|state|params|page|item|key|index)(?:\\.|$)/.test(value.trim());
+}
+function navigationTargetInfo(value) {
+  if (typeof value === "string") {
+    const text = value.trim();
+    if (text.startsWith("$") && isVariableReference(text.slice(1))) {
+      return { mode: "bind", bind: text.slice(1) };
+    }
+    if (text.includes("{{")) return { mode: "template", template: value };
+    return { mode: "route", route: value };
+  }
+  if (!isObject(value)) return { mode: "route", route: value === undefined || value === null ? "" : pretty(value) };
+  if (hasOwn(value, "bind")) return { mode: "bind", bind: pretty(value.bind) };
+  if (hasOwn(value, "template")) return { mode: "template", template: pretty(value.template) };
+  if (hasOwn(value, "itemAt")) {
+    const itemAt = isObject(value.itemAt) ? value.itemAt : {};
+    return {
+      mode: "itemAt",
+      itemAt: {
+        list: pretty(itemAt.list),
+        index: pretty(itemAt.index),
+        key: pretty(itemAt.key)
+      }
+    };
+  }
+  return { mode: "json", json: jsonText(value) };
+}
+function navigationModeOptions(selected) {
+  return [
+    ["route", "页面名"],
+    ["bind", "变量绑定"],
+    ["template", "模板"],
+    ["itemAt", "列表取值"],
+    ["json", "高级 JSON"]
+  ].map(([value, label]) => '<option value="' + esc(value) + '" ' + (value === selected ? 'selected' : '') + '>' + esc(label) + '</option>').join('');
+}
+function navigationTargetSeed(value) {
+  const info = navigationTargetInfo(value);
+  if (info.mode === "route") return info.route || "";
+  if (info.mode === "bind") return info.bind || "";
+  if (info.mode === "template") return info.template || "";
+  if (info.mode === "itemAt") return info.itemAt.list || "";
+  return "";
+}
+function navigationTargetDefault(mode, current) {
+  const seed = navigationTargetSeed(current);
+  if (mode === "bind") return { bind: seed };
+  if (mode === "template") return { template: seed };
+  if (mode === "itemAt") return { itemAt: { list: seed, index: 0, key: "" } };
+  if (mode === "json") return current === undefined ? "" : current;
+  return seed;
+}
+function renderNavigationTargetBody(info) {
+  if (info.mode === "route") {
+    return '<input list="page-routes" data-navigation-route value="' + esc(info.route) + '" placeholder="选择或输入页面名">';
+  }
+  if (info.mode === "bind") {
+    return '<input list="variable-paths" data-navigation-bind value="' + esc(info.bind) + '" placeholder="例如 state.nextPage">';
+  }
+  if (info.mode === "template") {
+    return '<input data-navigation-template value="' + esc(info.template) + '" placeholder="例如 {{ state.nextPage }}">';
+  }
+  if (info.mode === "itemAt") {
+    const itemAt = info.itemAt || {};
+    return '<div class="navigation-itemat">'
+      + '<label>列表<input list="variable-paths" data-navigation-item-list value="' + esc(itemAt.list) + '" placeholder="例如 data.items"></label>'
+      + '<label>索引<input list="variable-paths" data-navigation-item-index value="' + esc(itemAt.index) + '" placeholder="例如 state.selected"></label>'
+      + '<label>键名<input data-navigation-item-key value="' + esc(itemAt.key) + '" placeholder="例如 page"></label>'
+      + '</div>';
+  }
+  return '<div class="subtle">当前使用高级 JSON 编辑页面目标。</div>';
+}
+function renderNavigationTargetEditor(value, options = {}) {
+  const sourceInfo = navigationTargetInfo(value);
+  const info = options.mode === "json" ? { mode: "json", json: jsonText(value) } : sourceInfo;
+  const scope = options.scope || "action";
+  const field = options.field || "page";
+  const advanced = '<details class="navigation-advanced" ' + (info.mode === "json" ? 'open' : '') + '><summary>高级 JSON</summary><textarea data-navigation-json placeholder="页面目标 JSON，可直接编辑">' + esc(info.mode === "json" ? info.json : jsonText(value)) + '</textarea></details>';
+  return '<div class="navigation-editor" data-navigation-editor data-navigation-scope="' + esc(scope) + '" data-navigation-field="' + esc(field) + '" data-navigation-current-mode="' + esc(info.mode) + '"><div class="field-combo"><select data-navigation-mode>' + navigationModeOptions(info.mode) + '</select><span class="subtle">跳转前解析</span></div>' + renderNavigationTargetBody(info) + advanced + '</div>';
+}
+function navigationTargetFromEditor(editor, mode = editor.querySelector("[data-navigation-mode]")?.value || "route") {
+  if (mode === "route") {
+    const raw = editor.querySelector("[data-navigation-route]")?.value.trim() || "";
+    return raw || undefined;
+  }
+  if (mode === "bind") {
+    const raw = editor.querySelector("[data-navigation-bind]")?.value.trim() || "";
+    return raw ? { bind: raw } : undefined;
+  }
+  if (mode === "template") {
+    const raw = editor.querySelector("[data-navigation-template]")?.value || "";
+    return raw.trim() ? { template: raw } : undefined;
+  }
+  if (mode === "itemAt") {
+    const list = editor.querySelector("[data-navigation-item-list]")?.value.trim() || "";
+    const index = editor.querySelector("[data-navigation-item-index]")?.value.trim() || "";
+    const key = editor.querySelector("[data-navigation-item-key]")?.value.trim() || "";
+    if (!list && !index && !key) return undefined;
+    const itemAt = {};
+    if (list) itemAt.list = parseEditorValue(list);
+    if (index) itemAt.index = parseEditorValue(index);
+    if (key) itemAt.key = parseEditorValue(key);
+    return { itemAt };
+  }
+  const raw = editor.querySelector("[data-navigation-json]")?.value.trim() || "";
+  return raw ? parseEditorValue(raw) : undefined;
+}
+function localizedValueInfo(value) {
+  if (isObject(value)) {
+    if (hasOwn(value, "t") || hasOwn(value, "i18n")) {
+      return {
+        mode: "translation",
+        key: pretty(value.t ?? value.i18n),
+        parameters: value.with ?? value.params
+      };
+    }
+    if (hasOwn(value, "bind")) return { mode: "bind", text: pretty(value.bind) };
+    if (hasOwn(value, "template")) return { mode: "template", text: pretty(value.template) };
+    return { mode: "json", text: jsonText(value) };
+  }
+  if (Array.isArray(value)) return { mode: "json", text: jsonText(value) };
+  if (typeof value === "string" && value.includes("{{")) return { mode: "template", text: value };
+  if (typeof value === "string" && isVariableReference(value.replace(/^\\$/, ""))) {
+    return { mode: "bind", text: value.replace(/^\\$/, "") };
+  }
+  return { mode: "fixed", text: pretty(value) };
+}
+function localizedModeOptions(selected) {
+  return [
+    ["fixed", "固定文本"],
+    ["bind", "变量绑定"],
+    ["template", "模板"],
+    ["translation", "翻译键"],
+    ["json", "高级 JSON"]
+  ].map(([value, label]) => '<option value="' + esc(value) + '" ' + (value === selected ? 'selected' : '') + '>' + esc(label) + '</option>').join('');
+}
+function localizedValueSeed(value) {
+  const info = localizedValueInfo(value);
+  if (info.mode === "translation") return info.key || "";
+  return info.text || "";
+}
+function localizedValueDefault(mode, current) {
+  const seed = localizedValueSeed(current);
+  if (mode === "bind") return { bind: isVariableReference(seed) ? seed : "state.value" };
+  if (mode === "template") return { template: seed.includes("{{") ? seed : "{{ state.value }}" };
+  if (mode === "translation") return { t: seed && !seed.includes("{{") ? seed : "common.text" };
+  if (mode === "json") return isObject(current) || Array.isArray(current) ? current : {};
+  return isObject(current) || Array.isArray(current) ? seed : current ?? "";
+}
+function renderLocalizedBody(info) {
+  if (info.mode === "bind") {
+    return '<input list="variable-paths" data-localized-bind value="' + esc(info.text) + '" placeholder="例如 data.title">';
+  }
+  if (info.mode === "template") {
+    return '<input data-localized-template value="' + esc(info.text) + '" placeholder="例如 {{ data.title }}">';
+  }
+  if (info.mode === "translation") {
+    const parameters = info.parameters === undefined ? "" : jsonText(info.parameters);
+    return '<div class="localized-translation"><label>翻译键<input data-localized-key value="' + esc(info.key) + '" placeholder="例如 common.title"></label><details ' + (parameters ? 'open' : '') + '><summary>模板参数 JSON</summary><textarea data-localized-with placeholder="参数对象">' + esc(parameters) + '</textarea></details></div>';
+  }
+  if (info.mode === "json") {
+    return '<textarea data-localized-json placeholder="文本值 JSON">' + esc(info.text) + '</textarea>';
+  }
+  return '<input data-localized-fixed value="' + esc(info.text) + '" placeholder="输入显示文本">';
+}
+function renderLocalizedEditor(value, path) {
+  const info = localizedValueInfo(value);
+  const advanced = info.mode === "json"
+    ? ""
+    : '<details class="localized-advanced"><summary>高级 JSON</summary><textarea data-localized-json placeholder="文本值 JSON">' + esc(jsonText(value)) + '</textarea></details>';
+  return '<div class="localized-editor" data-localized-editor data-localized-path="' + path + '" data-localized-current-mode="' + esc(info.mode) + '"><div class="field-combo"><select data-localized-mode>' + localizedModeOptions(info.mode) + '</select><span class="subtle">显示前解析</span></div>' + renderLocalizedBody(info) + advanced + '</div>';
+}
+function localizedValueFromEditor(editor, mode = editor.querySelector("[data-localized-mode]")?.value || "fixed") {
+  if (mode === "fixed") return parseEditorValue(editor.querySelector("[data-localized-fixed]")?.value || "");
+  if (mode === "bind") return { bind: editor.querySelector("[data-localized-bind]")?.value.trim() || "" };
+  if (mode === "template") return { template: editor.querySelector("[data-localized-template]")?.value || "" };
+  if (mode === "translation") {
+    const value = { t: editor.querySelector("[data-localized-key]")?.value.trim() || "" };
+    const parameters = editor.querySelector("[data-localized-with]")?.value.trim() || "";
+    if (parameters) value.with = parseEditorValue(parameters);
+    return value;
+  }
+  const raw = editor.querySelector("[data-localized-json]")?.value.trim() || "";
+  return raw ? parseEditorValue(raw) : undefined;
+}
+function commitLocalizedEditor(editor, value) {
+  const path = decodePath(editor.dataset.localizedPath);
+  const next = arguments.length > 1 ? value : localizedValueFromEditor(editor);
+  if (next === undefined) post({ type: "delete", path });
+  else post({ type: "set", path, value: next });
 }
 function conditionOperator(value) {
   if (typeof value === "string") return "direct";
@@ -980,10 +1439,91 @@ function branchActionName(action) {
   if (typeof action.do === "string") return action.do;
   return Object.keys(action).find((key) => (model.actionTypes || []).includes(key)) || "";
 }
+function branchActionScalarField(name) {
+  if (name === "backspace") return "path";
+  if (name === "call") return "service";
+  if (name === "quit") return "code";
+  if (name === "notify") return "value";
+  if (name === "pop") return "result";
+  return "";
+}
+function branchActionFieldValue(action, name, field) {
+  if (typeof action === "string") return "";
+  const raw = action && typeof action === "object" ? action[name] : undefined;
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    if (field === "page" && raw.page === undefined && raw.route !== undefined) return raw.route;
+    return raw[field];
+  }
+  return branchActionScalarField(name) === field ? raw : undefined;
+}
+function branchActionFieldKind(name, field) {
+  if (name === "if") return "json";
+  return actionFieldKind(name, field);
+}
+function branchActionFieldLabel(field) {
+  return {
+    page: "页面",
+    route: "路由",
+    path: "路径",
+    value: "值",
+    result: "结果",
+    params: "参数",
+    with: "参数",
+    service: "服务",
+    list: "列表",
+    index: "索引",
+    by: "步长",
+    field: "字段",
+    code: "退出码",
+    condition: "条件",
+    then: "满足时",
+    else: "不满足时"
+  }[field] || field;
+}
+
+function callConfigUsesObject(config) {
+  return [
+    "with", "sh", "command", "args", "cwd", "env", "stdio", "blocking", "wait",
+    "result", "stdout", "stderr", "lines", "stderrLines", "json", "code", "check",
+    "interpreter", "maxBuffer", "onLine", "onExit"
+  ].some((field) => Object.prototype.hasOwnProperty.call(config || {}, field));
+}
+
+function branchActionValue(name, config) {
+  if (name === "call") {
+    if (callConfigUsesObject(config)) return { [name]: config };
+    return { [name]: config.service === undefined ? "" : config.service };
+  }
+  const scalar = branchActionScalarField(name);
+  if (scalar) return { [name]: config[scalar] === undefined ? "" : config[scalar] };
+  return { [name]: config };
+}
+function renderBranchActionField(name, field, action) {
+  const kind = branchActionFieldKind(name, field);
+  const value = branchActionFieldValue(action, name, field);
+  const label = branchActionFieldLabel(field);
+  if (kind === "navigation") {
+    return '<div class="field field-wide"><label>' + esc(label) + '</label>' + renderNavigationTargetEditor(value, { scope: "branch", field }) + '</div>';
+  }
+  if (kind === "json" || kind === "value") {
+    return '<div class="field"><label>' + esc(label) + '</label><textarea data-action-branch-field="' + esc(field) + '" data-kind="' + esc(kind) + '" placeholder="可选">' + esc(pretty(value)) + '</textarea></div>';
+  }
+  const list = kind === "path" ? ' list="variable-paths"' : kind === "route" ? ' list="page-routes"' : '';
+  return '<div class="field"><label>' + esc(label) + '</label><input' + list + ' value="' + esc(pretty(value)) + '" placeholder="可选" data-action-branch-field="' + esc(field) + '" data-kind="' + esc(kind) + '"></div>';
+}
 function branchActionMarkup(action) {
   const name = branchActionName(action);
   const options = (model.actionTypes || []).map((type) => '<option value="' + esc(type) + '" ' + (type === name ? 'selected' : '') + '>' + esc(type) + '</option>').join('');
-  return '<div class="branch-action"><div class="branch-action-toolbar"><select data-action-branch-type>' + options + '</select><button type="button" data-action-branch-remove title="删除分支动作">×</button></div><textarea data-action-branch-json placeholder="动作参数 JSON，可直接编辑">' + esc(pretty(action)) + '</textarea></div>';
+  const fields = (model.actionFields || {})[name] || [];
+  const fieldMarkup = fields.length
+    ? fields.map((field) => renderBranchActionField(name, field, action)).join('')
+    : '<div class="subtle">这个动作没有参数。</div>';
+  return '<div class="branch-action" data-action-branch-mode="structured"><div class="branch-action-toolbar"><select data-action-branch-type>' + options + '</select><button type="button" data-action-branch-remove title="删除分支动作">×</button></div><div class="branch-action-fields">' + fieldMarkup + '</div><details class="branch-action-advanced"><summary>高级 JSON</summary><textarea data-action-branch-json placeholder="动作参数 JSON，可直接编辑">' + esc(pretty(action)) + '</textarea></details></div>';
+}
+function replaceBranchAction(row, action) {
+  const holder = document.createElement("div");
+  holder.innerHTML = branchActionMarkup(action);
+  row.replaceWith(holder.firstElementChild);
 }
 function renderActionBranch(field, value) {
   const actions = Array.isArray(value) ? value : value === undefined || value === null || value === "" ? [] : [value];
@@ -992,12 +1532,38 @@ function renderActionBranch(field, value) {
 }
 function readActionBranch(branch) {
   return Array.from(branch.querySelectorAll(".branch-action"))
-    .map((row) => parseEditorValue(row.querySelector("[data-action-branch-json]")?.value || ""))
+    .map((row) => {
+      if (row.dataset.actionBranchMode === "json") return parseEditorValue(row.querySelector("[data-action-branch-json]")?.value || "");
+      const name = row.querySelector("[data-action-branch-type]")?.value || "";
+      const config = {};
+      row.querySelectorAll("[data-navigation-editor]").forEach((editor) => {
+        const value = navigationTargetFromEditor(editor);
+        if (value !== undefined) config[editor.dataset.navigationField || "page"] = value;
+      });
+      row.querySelectorAll("[data-action-branch-field]").forEach((field) => {
+        const raw = field.value;
+        if (raw.trim() === "") return;
+        if (field.dataset.kind === "number") {
+          const number = Number(raw);
+          if (Number.isFinite(number)) config[field.dataset.actionBranchField] = number;
+        } else if (field.dataset.kind === "json" || field.dataset.kind === "value") {
+          config[field.dataset.actionBranchField] = parseEditorValue(raw);
+        } else {
+          config[field.dataset.actionBranchField] = raw;
+        }
+      });
+      return branchActionValue(name, config);
+    })
     .filter((value) => value !== "");
 }
 function postSelectedIfConfig(config) {
   if (!model.selectedAction) return;
   post({ type: "set", path: model.selectedAction.path, value: { if: config } });
+}
+function postSelectedActionConfig(config) {
+  if (!model.selectedAction?.name) return;
+  const actionValue = model.selectedAction.name === "notify" ? config.value : config;
+  post({ type: "set", path: model.selectedAction.path, value: { [model.selectedAction.name]: actionValue } });
 }
 function conditionRootAttributes(editor) {
   if (!editor.hasAttribute("data-condition-root")) return "";
@@ -1076,6 +1642,33 @@ function commitStyleEditor(editor) {
   if (raw === "" && (mode === "preset" || mode === "object")) post({ type: "delete", path });
   else post({ type: "set", path, value });
 }
+function replaceNavigationEditor(editor, value, mode) {
+  const holder = document.createElement("div");
+  holder.innerHTML = renderNavigationTargetEditor(value, {
+    scope: editor.dataset.navigationScope || "action",
+    field: editor.dataset.navigationField || "page",
+    mode
+  });
+  const replacement = holder.firstElementChild;
+  editor.replaceWith(replacement);
+  return replacement;
+}
+function commitNavigationEditor(editor, explicitValue) {
+  if ((editor.dataset.navigationScope || "action") === "branch") {
+    const row = editor.closest(".branch-action");
+    if (row) row.dataset.actionBranchMode = "structured";
+    commitActionBranches();
+    return;
+  }
+  if (!model.selectedAction) return;
+  const field = editor.dataset.navigationField || "page";
+  const value = arguments.length > 1 ? explicitValue : navigationTargetFromEditor(editor);
+  const config = Object.assign({}, model.selectedAction.config || {});
+  if (field === "page" && config.page === undefined && config.route !== undefined) delete config.route;
+  if (value === undefined) delete config[field];
+  else config[field] = value;
+  postSelectedActionConfig(config);
+}
 function commitActionBranches() {
   const config = Object.assign({}, model.selectedAction?.config || {});
   document.querySelectorAll("[data-action-branch]").forEach((branch) => {
@@ -1096,12 +1689,76 @@ function renderPages() {
     ? '<div class="inline-form"><input id="page-name" placeholder="页面名"><button data-command="add-page">新建</button></div>'
     : '<div class="subtle">独立页面直接编辑当前页面。</div>';
 }
+function selectedLocaleEntry() {
+  const i18n = model.i18n || {};
+  return (i18n.locales || []).find((locale) => locale.code === i18n.selectedLocale);
+}
+function renderTranslationList() {
+  const el = document.getElementById("translations");
+  if (!el) return;
+  const i18n = model.i18n || {};
+  const filter = translationFilter.trim().toLocaleLowerCase();
+  const entries = (i18n.translations || []).filter((entry) => !filter
+    || entry.key.toLocaleLowerCase().includes(filter)
+    || pretty(entry.value).toLocaleLowerCase().includes(filter));
+  if (!entries.length) {
+    el.innerHTML = '<div class="empty">' + (filter ? '没有匹配的翻译键' : '这个语言文件还没有翻译键') + '</div>';
+    return;
+  }
+  el.innerHTML = entries.map((entry) => {
+    const active = model.selectedKind === "translation"
+      && pathKey(entry.path) === pathKey(i18n.selectedTranslationPath);
+    return '<button type="button" class="translation-button ' + (active ? 'active' : '') + '" data-translation-path="' + encodedPath(entry.path) + '" data-translation-locale="' + esc(i18n.selectedLocale) + '"><strong>' + esc(entry.key) + '</strong><span class="subtle">' + esc(entry.preview) + '</span></button>';
+  }).join('');
+}
+function renderTranslationBrowser() {
+  const el = document.getElementById("translation-browser");
+  const i18n = model.i18n || {};
+  const locale = selectedLocaleEntry();
+  if (!locale) { el.innerHTML = ''; return; }
+  const sourceButton = locale.external
+    ? '<button type="button" data-command="source-locale" title="打开语言文件">源码</button>'
+    : '';
+  const error = i18n.selectedLocaleError
+    ? '<div class="resource-error">' + esc(i18n.selectedLocaleError) + '</div>'
+    : '';
+  const disabled = i18n.selectedLocaleAvailable === false ? ' disabled' : '';
+  el.className = "translation-browser";
+  el.innerHTML = '<div class="translation-heading"><strong>' + esc(locale.code) + ' · ' + locale.entryCount + ' 项</strong>' + sourceButton + '</div><input id="translation-filter" value="' + esc(translationFilter) + '" placeholder="搜索翻译键"><div id="translations" class="translation-list"></div>' + error + '<div class="stack-form"><input id="translation-key" placeholder="新键，例如 common.title"><input id="translation-default" placeholder="默认文本"><button type="button" data-command="add-translation"' + disabled + '>添加翻译键</button></div>';
+  renderTranslationList();
+}
+function renderLocales() {
+  const el = document.getElementById("locales");
+  const form = document.getElementById("locale-form");
+  const i18n = model.i18n || {};
+  if (!model.ok) {
+    el.innerHTML = '<div class="empty">请先修复 YAML</div>';
+    form.innerHTML = '';
+    document.getElementById("translation-browser").innerHTML = '';
+    return;
+  }
+  if (model.mode !== "manifest") {
+    el.innerHTML = '<div class="subtle">请在 app.yaml 中管理应用语言。</div>';
+    form.innerHTML = '';
+    document.getElementById("translation-browser").innerHTML = '';
+    return;
+  }
+  const locales = i18n.locales || [];
+  el.innerHTML = locales.length ? locales.map((locale) => {
+    const active = ["locale", "translation"].includes(model.selectedKind)
+      && locale.code === i18n.selectedLocale;
+    const location = locale.external ? locale.source : '内联 · ' + locale.entryCount + ' 项';
+    return '<div class="locale-row"><button type="button" class="locale-button ' + (active ? 'active' : '') + '" data-locale="' + esc(locale.code) + '"><strong>' + esc(locale.code) + (locale.external ? ' ↗' : '') + '</strong><span class="subtle">' + esc(location) + '</span></button><button type="button" class="page-delete danger" data-command="delete-locale" data-locale-name="' + esc(locale.code) + '" title="移除语言（不删除文件）" aria-label="移除语言">×</button></div>';
+  }).join('') : '<div class="empty">还没有语言文件</div>';
+  form.innerHTML = '<div class="stack-form"><input id="locale-code" placeholder="语言代码，例如 zh-CN"><input id="locale-file" placeholder="文件路径（默认 locales/代码.yaml）"><button type="button" data-command="add-locale">创建语言文件</button></div>';
+  renderTranslationBrowser();
+}
 function renderVariableList(id, formId, entries, scope, emptyText) {
   const el = document.getElementById(id);
   if (!entries || !entries.length) el.innerHTML = '<div class="empty">' + esc(emptyText) + '</div>';
   else el.innerHTML = entries.map((item) => '<div class="variable-row"><button type="button" class="page-button variable-select ' + (pathKey(item.path) === pathKey(model.selectedPath) ? 'active' : '') + '" data-variable-path="' + encodedPath(item.path) + '"><strong>' + esc(item.key) + '</strong> <span>' + esc(item.type) + '</span><br><span class="subtle">' + esc(item.preview) + '</span></button><button type="button" class="variable-delete danger" data-command="delete-variable" data-variable-delete-path="' + encodedPath(item.path) + '" title="删除变量" aria-label="删除变量">×</button></div>').join("");
   const prefix = scope === "data" ? "共享变量" : "页面变量";
-  document.getElementById(formId).innerHTML = '<div class="inline-form"><input id="' + scope + '-key" placeholder="字段名"><select id="' + scope + '-kind"><option value="object">对象</option><option value="string">文字</option><option value="array">列表</option><option value="boolean">开关</option><option value="number">数字</option></select><button data-command="add-variable" data-scope="' + scope + '">添加</button></div><div class="subtle">' + prefix + '会写入 YAML，可在绑定中使用。</div>';
+  document.getElementById(formId).innerHTML = '<div class="inline-form"><input id="' + scope + '-key" placeholder="字段名或路径，例如 local.item"><select id="' + scope + '-kind"><option value="object">对象</option><option value="string">文字</option><option value="array">列表</option><option value="boolean">开关</option><option value="number">数字</option></select><button data-command="add-variable" data-scope="' + scope + '">添加</button></div><div class="subtle">' + prefix + '会写入 YAML，可在绑定中使用。</div>';
 }
 function renderData() {
   renderVariableList("data", "data-form", model.data, "data", "data 还是空的");
@@ -1109,7 +1766,7 @@ function renderData() {
 }
 function renderTreeNode(node) {
   if (!node) return '<div class="empty">还没有 layout。点击“创建布局”开始。</div>';
-  const active = pathKey(node.path) === pathKey(model.selectedPath);
+  const active = model.selectedKind === "layout" && pathKey(node.path) === pathKey(model.selectedPath);
   const children = node.children && node.children.length ? '<div class="node-children">' + node.children.map(renderTreeNode).join("") + '</div>' : '';
   const previewPath = encodedPath(node.path);
   return '<div class="node" data-drop-path="' + previewPath + '"><button draggable="true" class="node-button ' + (active ? 'active' : '') + '" data-node="' + previewPath + '" data-node-preview="' + previewPath + '" title="悬停预览" aria-label="' + esc(node.type + ' ' + node.label) + '"><span class="type">' + esc(node.type) + '</span><span class="label">' + esc(node.label) + '</span></button>' + children + '</div>';
@@ -1155,6 +1812,19 @@ function renderPreviewBody(data) {
   if (type === "panel") {
     return '<div class="preview-panel"><div class="preview-panel-title">' + esc(previewText(data, ["title"], "面板")) + '</div><div class="preview-panel-body">' + previewBlocks({ children: Math.max(1, Number(data.children) || 1) }, "column") + '</div></div>';
   }
+  if (type === "popup") {
+    return '<div class="preview-popup"><div class="preview-popup-card"><div class="preview-panel-title">' + esc(previewText(data, ["title"], "提示")) + '</div><div class="preview-panel-body">' + esc(previewText(data, ["message", "value"], "内容")) + '</div></div></div>';
+  }
+  if (type === "progress") {
+    const limit = Number(data.max);
+    const max = Number.isFinite(limit) && limit > 0 ? limit : 100;
+    const current = Number(data.value);
+    const value = Number.isFinite(current) ? Math.max(0, Math.min(max, current)) : max * 0.4;
+    const percent = Math.round(value / max * 100);
+    const label = previewText(data, ["label"], "进度");
+    const suffix = data.showValue === false || data.showValue === "false" ? "" : '<span>' + percent + '%</span>';
+    return '<div class="preview-progress"><span>' + esc(label) + '</span><span class="preview-progress-bar"><span class="preview-progress-fill" style="width:' + percent + '%"></span></span>' + suffix + '</div>';
+  }
   if (type === "list") {
     const label = previewText(data, ["label"], "列表项目");
     const selected = Number(data.selected);
@@ -1172,7 +1842,7 @@ function renderPreviewBody(data) {
 }
 function renderHoverPreview(node) {
   const data = node.preview || { type: node.type, children: (node.children || []).length };
-  const meta = ["style", "bind", "items", "selected", "gap", "padding", "visible"]
+  const meta = ["style", "bind", "items", "selected", "gap", "padding", "width", "height", "max", "showValue", "visible"]
     .filter((key) => data[key] !== undefined && data[key] !== null && data[key] !== "")
     .map((key) => '<span>' + esc(key + ': ' + pretty(data[key])) + '</span>')
     .join('');
@@ -1290,13 +1960,15 @@ function renderDatalists() {
 function fieldDefinitions(type) {
   const common = [{ key: "type", label: "组件", kind: "select", options: model.componentTypes || [] }];
   const fields = {
-    text: [{ key: "value", label: "文字", kind: "value" }, { key: "template", label: "模板", kind: "string" }, { key: "bind", label: "绑定", kind: "path" }, { key: "style", label: "样式", kind: "style" }, { key: "visible", label: "显示条件", kind: "condition" }],
-    input: [{ key: "value", label: "初始值", kind: "value" }, { key: "bind", label: "绑定", kind: "path" }, { key: "placeholder", label: "占位文字", kind: "string" }, { key: "style", label: "样式", kind: "style" }, { key: "visible", label: "显示条件", kind: "condition" }],
+    text: [{ key: "value", label: "文字", kind: "localized" }, { key: "template", label: "模板", kind: "string" }, { key: "bind", label: "绑定", kind: "path" }, { key: "style", label: "样式", kind: "style" }, { key: "visible", label: "显示条件", kind: "condition" }],
+    input: [{ key: "value", label: "初始值", kind: "localized" }, { key: "bind", label: "绑定", kind: "path" }, { key: "placeholder", label: "占位文字", kind: "localized" }, { key: "style", label: "样式", kind: "style" }, { key: "visible", label: "显示条件", kind: "condition" }],
     column: [{ key: "gap", label: "间距", kind: "number" }, { key: "padding", label: "边距", kind: "value" }, { key: "flex", label: "占满空间", kind: "boolean" }, { key: "style", label: "样式", kind: "style" }, { key: "visible", label: "显示条件", kind: "condition" }],
     row: [{ key: "gap", label: "间距", kind: "number" }, { key: "padding", label: "边距", kind: "value" }, { key: "flex", label: "占满空间", kind: "boolean" }, { key: "style", label: "样式", kind: "style" }, { key: "visible", label: "显示条件", kind: "condition" }],
-    panel: [{ key: "title", label: "标题", kind: "value" }, { key: "flex", label: "占满空间", kind: "boolean" }, { key: "border", label: "边框", kind: "string" }, { key: "borderStyle", label: "边框样式", kind: "style" }, { key: "titleStyle", label: "标题样式", kind: "style" }, { key: "style", label: "样式", kind: "style" }, { key: "visible", label: "显示条件", kind: "condition" }],
-    list: [{ key: "items", label: "数据列表", kind: "path" }, { key: "selected", label: "选中项", kind: "path" }, { key: "label", label: "标题模板", kind: "value" }, { key: "description", label: "描述模板", kind: "value" }, { key: "style", label: "列表样式", kind: "style" }, { key: "itemStyle", label: "普通样式", kind: "style" }, { key: "selectedStyle", label: "选中样式", kind: "style" }, { key: "disabledStyle", label: "禁用样式", kind: "style" }, { key: "emptyStyle", label: "空状态样式", kind: "style" }, { key: "visible", label: "显示条件", kind: "condition" }],
-    divider: [{ key: "character", label: "分隔字符", kind: "string" }, { key: "style", label: "样式", kind: "style" }, { key: "visible", label: "显示条件", kind: "condition" }],
+    panel: [{ key: "title", label: "标题", kind: "localized" }, { key: "flex", label: "占满空间", kind: "boolean" }, { key: "border", label: "边框", kind: "string" }, { key: "borderStyle", label: "边框样式", kind: "style" }, { key: "titleStyle", label: "标题样式", kind: "style" }, { key: "style", label: "样式", kind: "style" }, { key: "visible", label: "显示条件", kind: "condition" }],
+    popup: [{ key: "title", label: "标题", kind: "localized" }, { key: "message", label: "内容", kind: "localized" }, { key: "width", label: "宽度", kind: "number" }, { key: "height", label: "高度", kind: "number" }, { key: "padding", label: "边距", kind: "value" }, { key: "border", label: "边框", kind: "string" }, { key: "borderStyle", label: "边框样式", kind: "style" }, { key: "titleStyle", label: "标题样式", kind: "style" }, { key: "style", label: "样式", kind: "style" }, { key: "visible", label: "显示条件", kind: "condition" }],
+    progress: [{ key: "bind", label: "当前值", kind: "path" }, { key: "value", label: "固定值", kind: "value" }, { key: "max", label: "最大值", kind: "value" }, { key: "label", label: "标签", kind: "localized" }, { key: "showValue", label: "显示百分比", kind: "boolean" }, { key: "filled", label: "已完成字符", kind: "localized" }, { key: "empty", label: "未完成字符", kind: "localized" }, { key: "style", label: "样式", kind: "style" }, { key: "visible", label: "显示条件", kind: "condition" }],
+    list: [{ key: "items", label: "数据列表", kind: "path" }, { key: "selected", label: "选中项", kind: "path" }, { key: "label", label: "标题模板", kind: "localized" }, { key: "description", label: "描述模板", kind: "localized" }, { key: "emptyText", label: "空状态文字", kind: "localized" }, { key: "style", label: "列表样式", kind: "style" }, { key: "itemStyle", label: "普通样式", kind: "style" }, { key: "selectedStyle", label: "选中样式", kind: "style" }, { key: "disabledStyle", label: "禁用样式", kind: "style" }, { key: "emptyStyle", label: "空状态样式", kind: "style" }, { key: "visible", label: "显示条件", kind: "condition" }],
+    divider: [{ key: "character", label: "分隔字符", kind: "localized" }, { key: "style", label: "样式", kind: "style" }, { key: "visible", label: "显示条件", kind: "condition" }],
     spacer: [{ key: "height", label: "高度", kind: "number" }, { key: "lines", label: "行数", kind: "number" }, { key: "visible", label: "显示条件", kind: "condition" }]
   };
   return common.concat(fields[type] || fields.text);
@@ -1309,6 +1981,7 @@ function renderField(def, node) {
   if (def.kind === "boolean") return '<div class="field"><label>' + esc(def.label) + '</label><select data-field="' + esc(def.key) + '" data-kind="boolean" data-path="' + path + '"><option value="" ' + (!present ? 'selected' : '') + '>未设置</option><option value="true" ' + (value === true ? 'selected' : '') + '>是</option><option value="false" ' + (value === false && present ? 'selected' : '') + '>否</option></select></div>';
   if (def.kind === "style") return renderStyleEditor(def, value, path);
   if (def.kind === "condition") return '<div class="field field-wide"><label>' + esc(def.label) + '</label>' + renderConditionEditor(present ? value : undefined, { scope: "field", path }) + '</div>';
+  if (def.kind === "localized") return '<div class="field field-wide"><label>' + esc(def.label) + '</label>' + renderLocalizedEditor(present ? value : "", path) + '</div>';
   const list = def.kind === "path" ? ' list="variable-paths"' : '';
   const control = def.kind === "json" || def.kind === "value"
     ? '<textarea placeholder="可选" data-field="' + esc(def.key) + '" data-kind="' + esc(def.kind) + '" data-present="' + (present ? 'true' : 'false') + '" data-path="' + path + '">' + esc(pretty(value)) + '</textarea>'
@@ -1320,13 +1993,33 @@ function renderVariableInspector() {
   const scope = model.selectedKind === "state" ? "页面变量" : "共享变量";
   return '<div class="subtle">' + scope + '：' + esc((model.selectedPath || []).join('.')) + '</div><div class="field"><label>值</label><textarea data-variable-value>' + esc(pretty(node)) + '</textarea></div><div class="subtle">文字直接输入；对象和列表可以使用 JSON，例如 {"title":"任务"}。</div><div class="field-actions"><button data-command="save-variable">保存变量</button><button data-command="delete-variable" class="danger">删除变量</button></div>';
 }
+function renderLocaleInspector() {
+  const i18n = model.i18n || {};
+  const locale = selectedLocaleEntry();
+  if (!locale) return '<div class="empty">选择一个语言文件。</div>';
+  const storage = locale.external ? locale.source : 'manifest 内联对象';
+  const sourceButton = locale.external ? '<button data-command="source-locale">打开源码</button>' : '';
+  const error = i18n.selectedLocaleError ? '<div class="resource-error">' + esc(i18n.selectedLocaleError) + '</div>' : '';
+  return '<div class="field"><label>语言</label><strong>' + esc(locale.code) + '</strong></div><div class="field"><label>存储位置</label><span>' + esc(storage) + '</span></div><div class="field"><label>翻译数量</label><span>' + locale.entryCount + '</span></div><div class="field"><label>当前语言</label><span>' + esc(pretty(i18n.locale)) + '</span></div><div class="field"><label>回退语言</label><span>' + esc(pretty(i18n.fallback)) + '</span></div>' + error + '<div class="field-actions">' + sourceButton + '<button data-command="delete-locale" data-locale-name="' + esc(locale.code) + '" class="danger">移除语言</button></div><div class="subtle">移除映射不会删除外部语言文件。</div>';
+}
+function renderTranslationInspector() {
+  const i18n = model.i18n || {};
+  if (!i18n.selectedTranslationKey) return '<div class="empty">选择一个翻译键。</div>';
+  const textMode = i18n.selectedTranslationType === "string";
+  const value = textMode ? pretty(i18n.selectedTranslationValue) : jsonText(i18n.selectedTranslationValue);
+  return '<div class="subtle">语言：' + esc(i18n.selectedLocale) + '</div><div class="field field-wide"><label>翻译键</label><input value="' + esc(i18n.selectedTranslationKey) + '" readonly></div><div class="field"><label>值类型</label><select data-translation-kind><option value="text" ' + (textMode ? 'selected' : '') + '>文本</option><option value="json" ' + (!textMode ? 'selected' : '') + '>JSON 值</option></select></div><div class="field field-wide"><label>翻译内容</label><textarea data-translation-value>' + esc(value) + '</textarea></div><div class="subtle">文本可以包含 {{ params.name }} 等模板表达式。</div><div class="field-actions"><button data-command="save-translation">保存翻译</button><button data-command="delete-translation" class="danger">删除翻译键</button></div>';
+}
 function actionFieldKind(name, field) {
   if (name === "if" && field === "condition") return "condition";
+  if (name === "call" && ["result", "stdout", "stderr", "lines", "stderrLines", "json", "code", "cwd"].includes(field)) return "path";
+  if (name === "call" && ["blocking", "wait", "check"].includes(field)) return "value";
+  if (name === "call" && ["args", "env", "onLine", "onExit"].includes(field)) return "json";
+  if (name === "call" && field === "maxBuffer") return "number";
+  if ((model.actionNavigationFields || []).includes(field)) return "navigation";
   if ((model.actionJsonFields || []).includes(field)) return "json";
   if ((model.actionNumberFields || []).includes(field)) return "number";
   if ((model.actionValueFields || []).includes(field)) return "value";
   if ((model.actionPathFields || []).includes(field)) return "path";
-  if ((model.actionRouteFields || []).includes(field)) return "route";
   return "string";
 }
 function renderActionField(name, field, config) {
@@ -1335,9 +2028,16 @@ function renderActionField(name, field, config) {
   }
   if (name === "if" && (field === "then" || field === "else")) return renderActionBranch(field, config[field]);
   const kind = actionFieldKind(name, field);
-  const value = config && Object.prototype.hasOwnProperty.call(config, field) ? config[field] : "";
+  const value = config && Object.prototype.hasOwnProperty.call(config, field)
+    ? config[field]
+    : field === "page" && config?.route !== undefined
+      ? config.route
+      : "";
+  if (kind === "navigation") {
+    return '<div class="field field-wide"><label>' + esc(field) + '</label>' + renderNavigationTargetEditor(value, { scope: "action", field }) + '</div>';
+  }
   if (kind === "json" || kind === "value") return '<div class="field"><label>' + esc(field) + '</label><textarea data-action-field="' + esc(field) + '" data-kind="' + esc(kind) + '">' + esc(pretty(value)) + '</textarea></div>';
-  const list = kind === "path" ? ' list="variable-paths"' : kind === "route" ? ' list="page-routes"' : '';
+  const list = kind === "path" ? ' list="variable-paths"' : '';
   return '<div class="field"><label>' + esc(field) + '</label><input' + list + ' value="' + esc(pretty(value)) + '" placeholder="可选" data-action-field="' + esc(field) + '" data-kind="' + esc(kind) + '"></div>';
 }
 function renderActionInspector() {
@@ -1350,6 +2050,8 @@ function renderInspector() {
   const el = document.getElementById("inspector");
   const node = model.selectedNode;
   if (!model.ok) { el.innerHTML = '<div class="empty">请先修复 YAML。</div>'; return; }
+  if (model.selectedKind === "locale") { el.innerHTML = renderLocaleInspector(); return; }
+  if (model.selectedKind === "translation") { el.innerHTML = renderTranslationInspector(); return; }
   if (model.selectedKind === "action") { el.innerHTML = renderActionInspector(); return; }
   if (model.selectedKind === "data" || model.selectedKind === "state") { el.innerHTML = renderVariableInspector(); return; }
   if (!node || typeof node !== "object" || Array.isArray(node)) { el.innerHTML = '<div class="empty">选择一个布局节点查看属性。</div>'; return; }
@@ -1375,7 +2077,15 @@ function refreshActionEvents() {
 function renderBanner() {
   document.getElementById("banner").innerHTML = model.ok ? '' : '<div class="banner">无法打开可视化编辑器：' + esc(model.error) + '。请先修复 YAML，或打开源码编辑器。</div>';
 }
-function render() { hideHoverPreview(); renderBanner(); renderPages(); renderData(); renderTree(); bindHoverPreviews(); renderComponentTools(); renderInspector(); renderActions(); renderDatalists(); refreshActionEvents(); scheduleConditionEditorSync(); }
+function render() { hideHoverPreview(); renderBanner(); renderPages(); renderLocales(); renderData(); renderTree(); bindHoverPreviews(); renderComponentTools(); renderInspector(); renderActions(); renderDatalists(); refreshActionEvents(); scheduleConditionEditorSync(); }
+function publishWorkflowModel() {
+  window.__PAGE_TUI_WORKFLOW_MODEL__ = model;
+  window.dispatchEvent(new CustomEvent("page-tui-workflow-model", { detail: model }));
+}
+function setWorkflowVisible(visible) {
+  document.getElementById("workflow-workspace").hidden = !visible;
+  if (visible) window.dispatchEvent(new CustomEvent("page-tui-workflow-resize"));
+}
 
 window.addEventListener("scroll", hideHoverPreview, true);
 window.addEventListener("resize", hideHoverPreview);
@@ -1383,6 +2093,10 @@ window.addEventListener("resize", hideHoverPreview);
 document.addEventListener("click", (event) => {
   const page = event.target.closest("[data-page]");
   if (page) { vscode.postMessage({ type: "selectPage", page: page.dataset.page }); return; }
+  const locale = event.target.closest("[data-locale]");
+  if (locale) { vscode.postMessage({ type: "selectLocale", locale: locale.dataset.locale }); return; }
+  const translation = event.target.closest("[data-translation-path]");
+  if (translation) { vscode.postMessage({ type: "selectTranslation", locale: translation.dataset.translationLocale, path: decodePath(translation.dataset.translationPath) }); return; }
   const node = event.target.closest("[data-node]");
   if (node) { vscode.postMessage({ type: "selectNode", path: decodePath(node.dataset.node) }); return; }
   const variable = event.target.closest("[data-variable-path]");
@@ -1421,7 +2135,44 @@ document.addEventListener("click", (event) => {
   const button = event.target.closest("[data-command]");
   if (!button) return;
   const command = button.dataset.command;
+  if (command === "open-workflow") { setWorkflowVisible(true); return; }
+  if (command === "close-workflow") { setWorkflowVisible(false); return; }
   if (command === "source" || command === "preview") { vscode.postMessage({ type: command }); return; }
+  if (command === "source-locale") { vscode.postMessage({ type: "sourceLocale", locale: model.i18n?.selectedLocale }); return; }
+  if (command === "add-locale") {
+    const locale = document.getElementById("locale-code")?.value.trim();
+    const file = document.getElementById("locale-file")?.value.trim();
+    if (locale) vscode.postMessage({ type: "addLocale", locale, file });
+    return;
+  }
+  if (command === "delete-locale") {
+    const locale = button.dataset.localeName || model.i18n?.selectedLocale;
+    if (locale) vscode.postMessage({ type: "deleteLocale", locale });
+    return;
+  }
+  if (command === "add-translation") {
+    const key = document.getElementById("translation-key")?.value.trim();
+    const path = variableKeyParts(key);
+    const value = document.getElementById("translation-default")?.value || "";
+    if (path.length) vscode.postMessage({ type: "addTranslation", locale: model.i18n?.selectedLocale, path, value });
+    return;
+  }
+  if (command === "save-translation") {
+    const field = document.querySelector("[data-translation-value]");
+    const kind = document.querySelector("[data-translation-kind]")?.value || "text";
+    if (!field || !model.i18n?.selectedTranslationPath?.length) return;
+    let value = field.value;
+    if (kind === "json") {
+      try { value = JSON.parse(field.value); }
+      catch { document.getElementById("banner").innerHTML = '<div class="banner">JSON 值格式不正确。</div>'; return; }
+    }
+    vscode.postMessage({ type: "operation", target: "locale", locale: model.i18n.selectedLocale, operation: { type: "set", path: model.i18n.selectedTranslationPath, value } });
+    return;
+  }
+  if (command === "delete-translation") {
+    if (model.i18n?.selectedTranslationPath?.length) vscode.postMessage({ type: "deleteTranslation", locale: model.i18n.selectedLocale, path: model.i18n.selectedTranslationPath });
+    return;
+  }
   if (command === "delete-page") {
     const name = button.dataset.pageName;
     if (model.mode !== "manifest" || !name) return;
@@ -1433,7 +2184,7 @@ document.addEventListener("click", (event) => {
   if (command === "move-up" || command === "move-down") { if (model.selectedKind === "layout") post({ type: "move", path: model.selectedPath, direction: command === "move-up" ? "up" : "down" }); return; }
   if (command === "add-component") { const type = document.getElementById("component-type").value; if (model.componentInsertPath) post({ type: "append", path: model.componentInsertPath, value: componentDefaults(type) }); return; }
   if (command === "add-page") { const name = document.getElementById("page-name").value.trim(); if (!name) return; post({ type: "set", path: ["pages", name], value: { title: name, state: {}, layout: { type: "column", children: [] }, keys: {} } }); return; }
-  if (command === "add-variable") { const scope = button.dataset.scope; const key = document.getElementById(scope + "-key").value.trim(); const kind = document.getElementById(scope + "-kind").value; if (!key) return; const values = { object: {}, string: "", array: [], boolean: false, number: 0 }; const base = scope === "data" ? ["data"] : (model.selectedPagePath || []).concat(["state"]); post({ type: "set", path: base.concat(key), value: values[kind] }); return; }
+  if (command === "add-variable") { const scope = button.dataset.scope; const key = document.getElementById(scope + "-key").value.trim(); const keyParts = variableKeyParts(key); const kind = document.getElementById(scope + "-kind").value; if (!keyParts.length) return; const values = { object: {}, string: "", array: [], boolean: false, number: 0 }; const base = scope === "data" ? ["data"] : (model.selectedPagePath || []).concat(["state"]); post({ type: "set", path: base.concat(keyParts), value: values[kind] }); return; }
   if (command === "save-variable") { const field = document.querySelector("[data-variable-value]"); if (field) post({ type: "set", path: model.selectedPath, value: parseEditorValue(field.value) }); return; }
   if (command === "delete-variable") {
     const path = button.dataset.variableDeletePath ? decodePath(button.dataset.variableDeletePath) : model.selectedPath;
@@ -1448,6 +2199,11 @@ document.addEventListener("click", (event) => {
   }
   if (command === "add-action") { const source = document.getElementById("action-source").value; const eventName = document.getElementById("action-event").value; const action = document.getElementById("action-type").value; post({ type: "append", path: (model.selectedPagePath || []).concat([source, eventName]), value: { [action]: actionDefaults(action) } }); return; }
   if (command === "delete-action") { post({ type: "delete", path: decodePath(button.dataset.path) }); }
+});
+document.addEventListener("input", (event) => {
+  if (event.target.id !== "translation-filter") return;
+  translationFilter = event.target.value;
+  renderTranslationList();
 });
 let draggedPath;
 document.addEventListener("dragstart", (event) => {
@@ -1478,13 +2234,25 @@ document.addEventListener("drop", (event) => {
   const targetPath = decodePath(target.dataset.dropPath);
   const targetNode = findLayoutNode(model.layoutTree, targetPath);
   const intoContainer = targetNode
-    && ["panel", "column", "row", "group"].includes(targetNode.type)
+    && ["panel", "popup", "column", "row", "group"].includes(targetNode.type)
     && pathKey(draggedPath) !== pathKey(targetPath);
   post({ type: intoContainer ? "moveInto" : "move", path: draggedPath, targetPath });
   target.classList.remove("drop-target");
 });
 document.addEventListener("change", (event) => {
   if (event.target.id === "action-source") { refreshActionEvents(); return; }
+  if (event.target.matches("[data-translation-kind]")) {
+    const field = document.querySelector("[data-translation-value]");
+    if (!field) return;
+    if (event.target.value === "json") field.value = JSON.stringify(field.value);
+    else {
+      try {
+        const value = JSON.parse(field.value);
+        field.value = typeof value === "string" ? value : pretty(value);
+      } catch {}
+    }
+    return;
+  }
   const conditionEditor = event.target.closest("[data-condition-editor]");
   if (conditionEditor) {
     const root = event.target.closest("[data-condition-root]");
@@ -1516,15 +2284,66 @@ document.addEventListener("change", (event) => {
     if (editor) commitStyleEditor(editor);
     return;
   }
+  const navigationMode = event.target.closest("[data-navigation-mode]");
+  if (navigationMode) {
+    const editor = navigationMode.closest("[data-navigation-editor]");
+    if (!editor) return;
+    const current = navigationTargetFromEditor(editor, editor.dataset.navigationCurrentMode || "route");
+    const value = navigationTargetDefault(navigationMode.value, current);
+    const replacement = replaceNavigationEditor(editor, value, navigationMode.value);
+    commitNavigationEditor(replacement);
+    return;
+  }
+  const navigationJson = event.target.closest("[data-navigation-json]");
+  if (navigationJson) {
+    const editor = navigationJson.closest("[data-navigation-editor]");
+    if (!editor) return;
+    const value = navigationTargetFromEditor(editor, "json");
+    const replacement = replaceNavigationEditor(editor, value, "json");
+    commitNavigationEditor(replacement, value);
+    return;
+  }
+  const navigationControl = event.target.closest("[data-navigation-route], [data-navigation-bind], [data-navigation-template], [data-navigation-item-list], [data-navigation-item-index], [data-navigation-item-key]");
+  if (navigationControl) {
+    const editor = navigationControl.closest("[data-navigation-editor]");
+    if (editor) commitNavigationEditor(editor);
+    return;
+  }
+  const localizedMode = event.target.closest("[data-localized-mode]");
+  if (localizedMode) {
+    const editor = localizedMode.closest("[data-localized-editor]");
+    if (!editor) return;
+    const current = localizedValueFromEditor(editor, editor.dataset.localizedCurrentMode || "fixed");
+    commitLocalizedEditor(editor, localizedValueDefault(localizedMode.value, current));
+    return;
+  }
+  const localizedControl = event.target.closest("[data-localized-fixed], [data-localized-bind], [data-localized-template], [data-localized-key], [data-localized-with], [data-localized-json]");
+  if (localizedControl) {
+    const editor = localizedControl.closest("[data-localized-editor]");
+    if (editor) commitLocalizedEditor(editor, localizedControl.matches("[data-localized-json]") ? localizedValueFromEditor(editor, "json") : localizedValueFromEditor(editor));
+    return;
+  }
   const branchType = event.target.closest("[data-action-branch-type]");
   if (branchType) {
     const row = branchType.closest(".branch-action");
-    if (row) row.querySelector("[data-action-branch-json]").value = pretty({ [branchType.value]: actionDefaults(branchType.value) });
+    if (row) replaceBranchAction(row, { [branchType.value]: actionDefaults(branchType.value) });
+    commitActionBranches();
+    return;
+  }
+  const branchField = event.target.closest("[data-action-branch-field]");
+  if (branchField) {
+    const row = branchField.closest(".branch-action");
+    if (row) row.dataset.actionBranchMode = "structured";
     commitActionBranches();
     return;
   }
   const branchJson = event.target.closest("[data-action-branch-json]");
-  if (branchJson) { commitActionBranches(); return; }
+  if (branchJson) {
+    const row = branchJson.closest(".branch-action");
+    if (row) row.dataset.actionBranchMode = "json";
+    commitActionBranches();
+    return;
+  }
   const actionType = event.target.closest("[data-action-type]");
   if (actionType && model.selectedAction) { post({ type: "set", path: model.selectedAction.path, value: { [actionType.value]: actionDefaults(actionType.value) } }); return; }
   const actionField = event.target.closest("[data-action-field]");
@@ -1562,13 +2381,19 @@ document.addEventListener("change", (event) => {
 });
 window.addEventListener("message", (event) => {
   if (!event.data) return;
-  if (event.data.type === "model") { model = event.data.model; render(); }
-  if (event.data.type === "error") document.getElementById("banner").innerHTML = '<div class="banner">保存失败：' + esc(event.data.message) + '</div>';
+  if (event.data.type === "model") { model = event.data.model; render(); publishWorkflowModel(); }
+  if (event.data.type === "error") {
+    const message = event.data.message || "未知错误";
+    document.getElementById("banner").innerHTML = '<div class="banner">保存失败：' + esc(message) + '</div>';
+    window.dispatchEvent(new CustomEvent("page-tui-workflow-error", { detail: { message } }));
+  }
 });
 initHoverWidget();
 render();
+publishWorkflowModel();
 vscode.postMessage({ type: "ready" });
 </script>
+${workflowScript}
 </body>
 </html>`;
 }
@@ -1577,6 +2402,7 @@ module.exports = {
   ACTIONS,
   COMPONENTS,
   EVENTS,
+  applyJsonOperation,
   applyVisualOperation,
   buildVisualModel,
   createVisualEditorHtml

@@ -12,6 +12,7 @@ const source = [
   "  home:",
   "    state:",
   "      selected: 0",
+  "      nextPage: detail",
   "      title: \"\"",
   "    layout:",
   "      type: column",
@@ -30,7 +31,8 @@ const source = [
   "            list: data.items",
   "      enter:",
   "        - push:",
-  "            page: detail",
+  "            page:",
+  "              bind: state.nextPage",
   "      character:",
   "        - append:",
   "            path: state.title",
@@ -57,6 +59,48 @@ test("预览会响应列表点击、输入和键盘 action", () => {
 
   session.dispatch({ type: "key", key: "enter" });
   assert.equal(session.model().pageName, "detail");
+});
+
+test("预览条件可以解析普通 state 路径并显示 popup", () => {
+  const session = createPreviewSession([
+    "initial: home",
+    "pages:",
+    "  home:",
+    "    state:",
+    "      show: false",
+    "    layout:",
+    "      type: column",
+    "      children:",
+    "        - type: popup",
+    "          title: 提示",
+    "          visible: { equals: [ state.show, true ] }",
+    "          message: 已显示",
+    "    keys:",
+    "      enter:",
+    "        - set:",
+    "            path: state.show",
+    "            value: true"
+  ].join("\n"));
+
+  assert.doesNotMatch(session.model().body, /已显示/);
+  session.dispatch({ type: "key", key: "enter" });
+  assert.match(session.model().body, /已显示/);
+});
+
+test("预览将 mask 输入渲染为密码控件", () => {
+  const session = createPreviewSession([
+    "initial: home",
+    "pages:",
+    "  home:",
+    "    state:",
+    "      password: secret",
+    "    layout:",
+    "      type: input",
+    "      bind: state.password",
+    "      mask: true"
+  ].join("\n"));
+
+  assert.match(session.model().body, /type="password"/);
 });
 
 test("预览 Webview 注册了交互事件桥", () => {
@@ -92,4 +136,98 @@ test("预览显示实时变量并可以重置会话", () => {
   const script = html.match(/<script nonce="[^"]+">([\s\S]*)<\/script>/);
   assert.ok(script);
   assert.doesNotThrow(() => new Function("acquireVsCodeApi", script[1]));
+});
+
+test("预览按绑定状态渲染进度条", () => {
+  const session = createPreviewSession([
+    "initial: home",
+    "pages:",
+    "  home:",
+    "    state:",
+    "      progress: 25",
+    "    layout:",
+    "      type: progress",
+    "      bind: state.progress",
+    "      max: 100",
+    "      label: 下载"
+  ].join("\n"));
+
+  assert.match(session.model().body, /component-progress/);
+  assert.match(session.model().body, /progress-fill/);
+  assert.match(session.model().body, /width:25%/);
+  assert.match(session.model().body, /25%/);
+});
+
+test("预览按变量切换内联和外部语言模块", () => {
+  const session = createPreviewSession([
+    "initial: home",
+    "data:",
+    "  locale: en",
+    "  name: Ada",
+    "  items: []",
+    "i18n:",
+    "  locale:",
+    "    bind: data.locale",
+    "  fallback: zh-CN",
+    "  locales:",
+    "    en: locales/en.yaml",
+    "    zh-CN:",
+    "      home:",
+    "        title: 安装程序",
+    "        greeting: \"你好，{{ params.name }}\"",
+    "        placeholder: 请输入内容",
+    "        empty: 暂无内容",
+    "pages:",
+    "  home:",
+    "    title:",
+    "      t: home.title",
+    "    state:",
+    "      value: \"\"",
+    "    layout:",
+    "      type: column",
+    "      children:",
+    "        - type: text",
+    "          value:",
+    "            t: home.greeting",
+    "            with:",
+    "              name:",
+    "                bind: data.name",
+    "        - type: text",
+    "          template: \"{{ t('home.title') }}\"",
+    "        - type: input",
+    "          bind: state.value",
+    "          placeholder:",
+    "            t: home.placeholder",
+    "        - type: list",
+    "          items: data.items",
+    "          emptyText:",
+    "            t: home.empty",
+    "    keys:",
+    "      l:",
+    "        - set:",
+    "            path: data.locale",
+    "            value: zh-CN"
+  ].join("\n"), undefined, {
+    locales: {
+      en: {
+        home: {
+          title: "Installer",
+          greeting: "Hello, {{ params.name }}",
+          placeholder: "Type a value",
+          empty: "No content"
+        }
+      }
+    }
+  });
+
+  assert.match(session.model().body, /Installer/);
+  assert.match(session.model().body, /Hello, Ada/);
+  assert.match(session.model().body, /placeholder="Type a value"/);
+  assert.match(session.model().body, /No content/);
+
+  session.dispatch({ type: "key", key: "l" });
+  assert.match(session.model().body, /安装程序/);
+  assert.match(session.model().body, /你好，Ada/);
+  assert.match(session.model().body, /placeholder="请输入内容"/);
+  assert.match(session.model().body, /暂无内容/);
 });

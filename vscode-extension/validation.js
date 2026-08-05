@@ -8,7 +8,9 @@ const COMPONENTS = new Set([
   "panel",
   "list",
   "divider",
-  "spacer"
+  "spacer",
+  "popup",
+  "progress"
 ]);
 
 const ACTIONS = new Set([
@@ -142,7 +144,9 @@ function validateActions(actions, source, issues, routes, path = "keys") {
 
     if (NAVIGATION_ACTIONS.has(name) && isObject(config)) {
       const target = config.page || config.route;
-      if (typeof target === "string" && routes && !routes.has(target)) {
+      const looksDynamic = typeof target === "string"
+        && (target.includes("{{") || target.trim().startsWith("$"));
+      if (typeof target === "string" && !looksDynamic && routes && !routes.has(target)) {
         addIssue(
           issues,
           "error",
@@ -201,7 +205,56 @@ function validatePage(page, source, issues, routes, name = "当前页面") {
   }
 }
 
+function validateI18n(definition, source, issues) {
+  if (definition === undefined) return;
+  const offset = findOffset(source, "i18n:");
+  if (!isObject(definition)) {
+    addIssue(issues, "error", "manifest 的 i18n 必须是对象。", offset);
+    return;
+  }
+
+  const selector = definition.locale ?? definition.language;
+  if (isObject(selector) && Object.hasOwn(selector, "bind") && typeof selector.bind !== "string") {
+    addIssue(issues, "error", "i18n.locale.bind 必须是变量路径字符串。", findOffset(source, "bind:", offset));
+  }
+  if (isObject(selector) && !Object.hasOwn(selector, "bind") && !Object.hasOwn(selector, "value")) {
+    addIssue(issues, "warning", "i18n.locale 对象应使用 bind 或 value 选择语言。", offset);
+  }
+
+  for (const name of ["fallback", "default"]) {
+    if (definition[name] !== undefined && typeof definition[name] !== "string") {
+      addIssue(issues, "error", "i18n." + name + " 必须是语言代码字符串。", findOffset(source, name + ":", offset));
+    }
+  }
+
+  const sourceNames = ["locales", "files", "sources"].filter((name) => definition[name] !== undefined);
+  if (!sourceNames.length) {
+    addIssue(issues, "warning", "i18n 没有 locales，因此翻译键会直接显示。", offset);
+    return;
+  }
+
+  for (const name of sourceNames) {
+    const locales = definition[name];
+    const localesOffset = findOffset(source, name + ":", offset);
+    if (!isObject(locales)) {
+      addIssue(issues, "error", "i18n." + name + " 必须是语言映射对象。", localesOffset);
+      continue;
+    }
+    for (const [locale, localeSource] of Object.entries(locales)) {
+      if (typeof localeSource !== "string" && !isObject(localeSource)) {
+        addIssue(
+          issues,
+          "error",
+          "语言 “" + locale + "” 必须指向外部 YAML/JSON 文件或内联对象。",
+          findOffset(source, locale + ":", localesOffset)
+        );
+      }
+    }
+  }
+}
+
 function validateManifest(root, source, issues) {
+  validateI18n(root.i18n, source, issues);
   if (!isObject(root.pages)) {
     addIssue(issues, "error", "manifest 的 pages 必须是对象。", findOffset(source, "pages:"));
     return;

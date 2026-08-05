@@ -58,6 +58,7 @@ template: "用户：{{ data.user.name }}"
 当前支持：
 
 - 变量路径。
+- t。
 - if。
 - count。
 - length。
@@ -76,6 +77,8 @@ user?.profile?.name
 ~~~
 
 这样做是为了让页面文件保持可读、可检查、可预测。
+
+`t('common.title')` 用于从当前语言模块读取文本；外部语言文件和运行时切换见 [14 - 外部语言模块与运行时切换](./14-internationalization.md)。
 
 ## 3. 变量路径
 

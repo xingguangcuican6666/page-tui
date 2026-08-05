@@ -109,6 +109,27 @@
       "  emptyText: \"${6:暂无内容}\""
     ]
   },
+  "Page TUI：弹窗": {
+    "prefix": "popup",
+    "description": "插入一个居中弹窗组件",
+    "body": [
+      "type: popup",
+      "title: \"${1:提示}\"",
+      "width: ${2:40}",
+      "height: ${3:8}",
+      "message: \"${4:内容}\""
+    ]
+  },
+  "Page TUI：进度条": {
+    "prefix": "progress",
+    "description": "插入绑定变量的进度条",
+    "body": [
+      "type: progress",
+      "bind: ${1:state.progress}",
+      "max: ${2:100}",
+      "label: \"${3:进度}\""
+    ]
+  },
   "Page TUI：文本输入": {
     "prefix": "input",
     "description": "插入 input 和 character/backspace 按键",
@@ -183,12 +204,37 @@
   },
   "Page TUI：调用 Service": {
     "prefix": "call",
-    "description": "插入白名单 service 调用",
+    "description": "插入 call 动作",
     "body": [
-      "- call: ${1:tasks.save}",
-      "  with:",
-      "    ${2:title}:",
-      "      bind: ${3:state.title}"
+      "- call:",
+      "    sh: ${1:echo hello}",
+      "    stdio: pipe",
+      "    result: ${2:state.callResult}"
+    ]
+  },
+  "Page TUI：外部语言模块": {
+    "prefix": "i18n",
+    "description": "绑定当前语言变量并加载外部 YAML/JSON 语言文件",
+    "body": [
+      "i18n:",
+      "  locale:",
+      "    bind: ${1:data.locale}",
+      "  fallback: ${2:zh-CN}",
+      "  locales:",
+      "    zh-CN: ${3:locales/zh-CN.yaml}",
+      "    en: ${4:locales/en.yaml}",
+      "${0}"
+    ]
+  },
+  "Page TUI：翻译文本": {
+    "prefix": "translate",
+    "description": "插入带可选模板参数的翻译值",
+    "body": [
+      "t: ${1:common.title}",
+      "with:",
+      "  ${2:name}:",
+      "    bind: ${3:data.name}",
+      "${0}"
     ]
   },
   "Page TUI：模板变量": {

@@ -295,7 +295,7 @@ layout:
   cursor: false
 ~~~
 
-输入动作仍然需要在 keys 中定义：
+默认会自动接收普通字符和 backspace。只有需要自定义按键行为时，才在 keys 中显式定义：
 
 ~~~yaml
 keys:
@@ -322,6 +322,20 @@ input 当前是单行输入，支持追加字符和删除末尾字符。它不�
 这些行为可以通过自定义 action 或底层 JS API 扩展。
 
 ## 8. panel：边框容器
+
+### popup：居中弹窗
+
+popup 和 panel 很像，但它会在当前布局区域里居中显示，适合提示、确认和简单表单：
+
+~~~yaml
+- type: popup
+  title: "提示"
+  width: 40
+  height: 8
+  message: "确定继续吗？"
+~~~
+
+也可以像 panel 一样放 child 或 children。
 
 ~~~yaml
 - type: panel

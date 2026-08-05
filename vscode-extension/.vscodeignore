@@ -1,5 +1,8 @@
 .vscode/**
 .gitignore
 test/**
+scripts/**
+webview/**
+package-lock.json
 *.vsix
 npm-debug.log*

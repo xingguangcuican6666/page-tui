@@ -8,6 +8,7 @@
 - 布局组件补全。
 - 内置 action 补全。
 - data、state、params、item 等变量路径补全。
+- 外部语言模块配置和翻译文本补全。
 - 页面 route 补全。
 - 鼠标悬停中文说明。
 - YAML、组件、action 和页面跳转校验。
@@ -86,7 +87,7 @@ Page TUI: 将当前文件设为 Page TUI YAML
 
 根节点会根据文件类型区分：
 
-- `app.yaml` 是应用 manifest，根键是 `initial`、`data`、`pages`。
+- `app.yaml` 是应用 manifest，根键是 `initial`、`data`、`i18n`、`pages`。
 - `ui/pages/home.yaml`、`*.page.yaml` 是独立页面，根键是 `name`、`title`、`state`、`layout`、`keys`、`on`。
 
 所以在 `app.yaml` 根部输入 `ke` 不会出现 `keys`；应在 `pages.home.keys` 下写按键，或把页面拆到独立页面文件。`data` 本身是对象，列表要放在 `data.items`、`data.tasks` 等字段下。
@@ -113,6 +114,18 @@ condition:
 ~~~
 
 `if` 的 `then`、`else` 分支可以选择、添加和删除动作，并保留参数 JSON 编辑入口。扩展升级后如果已经打开的可视化编辑器仍显示旧内容，请关闭该编辑器标签页并重新打开；新的 custom editor 不会继续保留旧的隐藏 Webview 状态。
+
+“按键与动作”标题旁的“流程图”按钮会打开独立的事务流程编辑器。它只编辑当前页面的 `keys.*` 和 `on.*` 动作，不会改变现有布局树、组件拖拽或属性面板的编辑方式。普通动作按执行顺序连线，`if` 使用“满足/不满足”分支，shell `call` 使用“逐行/退出”回调分支。
+
+左侧节点库包含 Shell 命令、直接运行程序、Service、变量设置与提取、列表追加/移动/删除、布尔切换、退格、进度、条件、通知、刷新和页面导航。窄屏时通过工具栏的节点库按钮打开同一目录。节点可以拖入画布，也可以右键创建；新节点默认保持游离，不会改动已有连线，连接执行链后才会写回 YAML。`if` 的“继续”和事件的“结束”是自动结构节点，不需要手动创建。
+
+右侧参数区默认使用结构化表单，固定值、变量引用、模板和 JSON 可以直接切换，`if` 条件支持嵌套的全部满足、任一满足和取反；“高级 JSON”仍可编辑完整 action。`call` 可以切换 Shell、直接程序和 Service，配置阻塞等待、失败检查、工作目录、参数、环境变量、标准流和缓冲区，并按需把完整结果、stdout、stderr、行列表、JSON 或退出码写入指定变量。创建/设置变量节点会生成运行时 `set` 动作，不会额外修改页面初始 `state`。
+
+布局属性中的标题、文字、占位文字、列表空状态和进度标签可以在“固定文本 / 变量绑定 / 模板 / 翻译键 / 高级 JSON”之间切换；翻译键模式可直接填写 `with` 模板参数。流程图的值参数也提供同样的“翻译”模式。
+
+左侧“翻译文件”区域用于维护翻译字典本身：可以创建并注册 YAML/JSON 语言文件、搜索和新增嵌套翻译键，也可以在右侧属性区编辑或删除当前值。外部语言写回对应文件，内联语言写回 manifest；移除语言只删除 `i18n.locales`（或 `files`、`sources`）映射，不会删除磁盘文件。已经打开的语言文件发生修改时，键列表会实时同步。
+
+节点位置只保存在 VS Code Webview 状态中，不会写入 YAML。点击连线后可在检查器中删除，也可按 `Delete` 或 `Backspace`；断开的动作、重复出口或循环会作为 Webview 草稿保留，整张图重新合法后才写回对应事件，避免编辑中间态覆盖原动作。标量 service 写法 `call: tasks.save` 只有“后续”出口，因为 `onLine`、`onExit` 是外部 shell 命令的回调能力。
 
 manifest 使用外部页面文件时，页面列表中的外部页面也可以直接编辑。共享 `data` 写入 manifest，外部页面的 layout、state 和 keys 写入被引用的页面文件。YAML AST 写回会尽量保留注释、未知字段和原有结构；需要高级配置时可以点击“源码”切回文本编辑器。
 
@@ -279,6 +292,7 @@ Page TUI: 打开实时预览
 - 在“实时变量”区域查看当前 `data`、`state` 和 `params`，点击“重置预览”恢复 YAML 初始状态。
 - 展示 text、input、column、row、panel、list、divider 和 spacer。
 - 计算 `data`、页面 `state`、`params`、`item` 和常用模板函数。
+- 加载 manifest 引用的外部语言文件，并按语言变量解析 `{ t: ... }` 和 `t()`。
 - YAML 暂时写错时显示错误，修正后自动恢复。
 
 预览会在内存中执行安全的内置 keys 动作，例如 set、move、toggle、append、push、pop 和 if；不会执行 call、refresh、Node.js service、网络请求或数据库操作。需要验证真实运行环境时，使用“Page TUI: 运行当前项目”。
@@ -374,6 +388,9 @@ Page TUI: 将当前文件设为 Page TUI YAML
 vscode-extension/
 ├── extension.js                  # VS Code 激活入口、补全、悬停、命令和 custom editor
 ├── visual-editor.js              # 可视化编辑器模型、AST 操作和 Webview
+├── workflow-model.js             # action 与流程图的双向转换和完整性校验
+├── webview/                      # React Flow 流程编辑器源码
+├── media/                        # 构建后随扩展发布的 Webview 资源
 ├── preview.js                    # Webview 预览渲染和变量模板计算
 ├── validation.js                 # 不依赖 VS Code 的页面校验逻辑
 ├── starter.js                    # 一键生成的页面模板
@@ -407,6 +424,8 @@ vscode-extension/
 
 ~~~bash
 npm --prefix vscode-extension test
+npm --prefix vscode-extension run build:webview
+npm --prefix vscode-extension run smoke:webview
 ~~~
 
 当前测试覆盖：
@@ -417,5 +436,7 @@ npm --prefix vscode-extension test
 - 独立页面文件可以被校验。
 - 页面字段补全会在普通 YAML 模式中触发。
 - 实时预览可以渲染页面、变量、列表和页面切换。
+- action、`if` 分支和 shell 回调可以在流程图与 YAML 之间往返。
+- 打包后的 React Flow Webview 可以在桌面和窄屏尺寸中完成节点插入与写回。
 - YAML 错误会显示为预览面板错误，而不是导致扩展崩溃。
 - YAML 语法错误可以被发现。

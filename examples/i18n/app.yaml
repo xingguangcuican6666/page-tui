@@ -1,0 +1,82 @@
+initial: home
+
+data:
+  locale: zh-CN
+  user:
+    name: Ada
+  languages:
+    - code: zh-CN
+      label: 简体中文
+    - code: en
+      label: English
+
+i18n:
+  locale:
+    bind: data.locale
+  fallback: zh-CN
+  locales:
+    zh-CN: locales/zh-CN.yaml
+    en: locales/en.yaml
+
+pages:
+  home:
+    title:
+      t: app.title
+    state:
+      selected: 0
+      value: ""
+    layout:
+      type: column
+      padding: [1, 2]
+      gap: 1
+      children:
+        - type: text
+          value:
+            t: app.heading
+          style: title
+        - type: text
+          value:
+            t: app.greeting
+            with:
+              name:
+                bind: data.user.name
+        - type: text
+          template: "{{ t('app.current') }}: {{ data.locale }}"
+          style: muted
+        - type: panel
+          title:
+            t: app.choose
+          child:
+            type: list
+            items: data.languages
+            selected: state.selected
+            label: "{{ item.label }}"
+        - type: input
+          bind: state.value
+          placeholder:
+            t: app.placeholder
+        - type: text
+          value:
+            t: app.help
+          style: muted
+    keys:
+      up:
+        - move:
+            path: state.selected
+            by: -1
+            list: data.languages
+      down:
+        - move:
+            path: state.selected
+            by: 1
+            list: data.languages
+      enter:
+        - set:
+            path: data.locale
+            value:
+              itemAt:
+                list: data.languages
+                index: state.selected
+                key: code
+      q:
+        - quit

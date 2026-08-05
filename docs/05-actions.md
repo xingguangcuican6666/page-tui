@@ -105,6 +105,19 @@ set 可以修改：
 - data.x
 - state.x
 - params.x
+- env.NAME：当前应用进程启动的外部命令会继承的环境变量
+
+`env` 只影响当前 Page TUI 进程及其后续启动的子进程，不会修改启动它的父 Shell。需要让
+`cfdisk`、`timedatectl` 等后续外部程序使用新的语言时，可以这样写：
+
+~~~yaml
+- set:
+    path: env.LANG
+    value: { bind: data.system.lang }
+- set:
+    path: env.LC_ALL
+    value: { bind: data.system.lang }
+~~~
 
 不应该尝试修改 app.x 或 key.x。
 
@@ -268,7 +281,7 @@ go 是 push 的别名：
     page: detail
 ~~~
 
-页面必须存在于 manifest 的 pages 中。
+页面必须存在于 manifest 的 pages 中。`page` 或 `route` 也可以写成变量绑定或模板，运行时会先求值再跳转。
 
 ## 10. replace：替换当前页面
 
@@ -405,7 +418,7 @@ condition 支持：
           value: "可以保存"
 ~~~
 
-## 15. call：调用白名单 service
+## 15. call：调用 service 或外部 sh
 
 ~~~yaml
 - call: tasks.save
@@ -414,9 +427,100 @@ condition 支持：
       bind: state.task
 ~~~
 
-YAML 不会直接执行任意函数，只能调用 Node.js 启动器传入的 services 中已有名称。
+上面这种写法会调用 Node.js 启动器传入的 services 中已有名称。
 
 service 的详细说明见 [07 - Service 与 Node.js 业务代码](./07-services.md)。
+
+也可以直接调用外部 shell 命令。默认会阻塞等待命令结束。只要配置了输出字段或回调，框架就会自动捕获 stdout 和 stderr：
+
+~~~yaml
+- call:
+    sh: "printf hello"
+    result: state.lastCall
+~~~
+
+`state.lastCall` 会得到类似这样的对象：
+
+~~~json
+{"ok":true,"running":false,"code":0,"signal":null,"pid":123,"stdout":"hello","stderr":"","stdoutLines":["hello"],"stderrLines":[],"error":null}
+~~~
+
+### 把命令输出写入页面变量
+
+`call` 可以同时写入多种形式的结果：
+
+~~~yaml
+- call:
+    sh: "printf 'first\\nsecond\\n'"
+    stdout: state.rawOutput
+    stderr: state.rawError
+    lines: state.logs
+    stderrLines: state.errorLogs
+    code: state.exitCode
+    result: state.process
+~~~
+
+- stdout、stderr：完整字符串。
+- lines、stderrLines：按行拆分后的数组，可以直接给 list 的 items 使用。
+- code：退出码；进程尚未结束时是 null。
+- result：完整结果对象。非阻塞命令运行时会持续更新，结束后 running 变为 false。
+
+如果 stdout 是完整 JSON，可以直接解析到变量：
+
+~~~yaml
+- call:
+    command: node
+    args: ["scripts/list-packages.js"]
+    json: state.packages
+
+layout:
+  type: list
+  items: state.packages
+  selected: state.selected
+  label: "{{ item.name }}"
+~~~
+
+stdout 必须只包含一个有效 JSON 值。解析失败时目标变量为 null，错误信息保存在 result.jsonError 中。
+
+如果需要直接执行命令而不是交给 shell 解析，使用 `command` 和 `args`：
+
+~~~yaml
+- call:
+    command: node
+    args: ["scripts/build.js"]
+    wait: false
+    lines: state.logs
+    result: state.process
+~~~
+
+`wait: false` 或 `blocking: false` 会启动后台进程后立刻返回。配置 lines、stdout、json、result、onLine 或 onExit 时会自动使用管道捕获输出；完全不需要输出时默认使用 `stdio: ignore`。显式设置 `stdio: inherit` 会让子进程直接接管当前终端，因此无法再捕获输出。
+
+### 逐行处理与结束回调
+
+`onLine` 在 stdout 或 stderr 产生一条完整日志时执行。当前行可从 key.value 读取，来源可从 key.stream 读取：
+
+~~~yaml
+- call:
+    command: ./install.sh
+    wait: false
+    lines: state.logs
+    result: state.install
+    onLine:
+      - set:
+          path: state.progress
+          value:
+            bind: key.value
+    onExit:
+      - replace:
+          page: result
+          params:
+            code:
+              bind: key.code
+~~~
+
+`onExit` 在进程结束且结果变量完成更新后执行。可读取 key.code、key.signal 和 key.result，也可以在这里 push、replace 或 reset 到指定页面。
+
+非阻塞 call 外层的 then 会在进程成功启动后立即执行；需要等待命令结束的动作应放在 onExit 中。
 
 ## 16. refresh：执行数据刷新回调
 

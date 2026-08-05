@@ -4,17 +4,25 @@ const path = require("node:path");
 const YAML = require("yaml");
 const { validatePageTui } = require("./validation");
 const { createPreviewHtml, createPreviewSession } = require("./preview");
-const { createVisualEditorHtml, buildVisualModel, applyVisualOperation } = require("./visual-editor");
+const {
+  createVisualEditorHtml,
+  buildVisualModel,
+  applyJsonOperation,
+  applyVisualOperation
+} = require("./visual-editor");
+const { workflowToActions } = require("./workflow-model");
 const STARTER_PAGE = require("./starter");
 
 const VISUAL_EDITOR_VIEW_TYPE = "pageTui.visualEditor";
 
 const COMPONENT_HELP = {
   text: ["text：显示一行文字。", "value、bind 或 template 三选一。"],
-  input: ["input：显示单行输入框。", "通常绑定 state.title，并配合 character/backspace 动作。"],
+  input: ["input：显示单行输入框。", "通常绑定 state.title；默认会自动接收普通字符和 backspace。"],
   column: ["column：从上到下排列 children。", "最常用的页面外层布局。"],
   row: ["row：从左到右排列 children。", "适合标题、状态和并列面板。"],
   panel: ["panel：给 child 加边框和标题。", "可以设置 flex: true 占用剩余空间。"],
+  popup: ["popup：居中显示一个弹窗面板。", "可以写 child、children、message、title、width 和 height。"],
+  progress: ["progress：显示一个数值进度条。", "bind 绑定当前值，max 设置最大值，可用于展示外部命令进度。"],
   list: ["list：显示可选择的数组。", "items 是数组路径，selected 是从 0 开始的序号。"],
   divider: ["divider：显示横向分隔线。", "可以设置 character 和 style。"],
   spacer: ["spacer：占用空白高度。", "height 或 lines 表示空白行数。"]
@@ -33,13 +41,14 @@ const ACTION_HELP = {
   reset: ["reset：清空页面栈后打开新页面。", "适合退出登录或结束流程。"],
   pop: ["pop：返回上一页。", "根页面执行时会退出应用。"],
   quit: ["quit：退出应用。", "可以指定 code。"],
-  call: ["call：调用启动器注册的白名单 service。", "复杂业务逻辑放在 Node.js 中。"],
+  call: ["call：调用 service 或外部 shell 命令。", "可把 stdout、日志行或 JSON 写入状态，并用 onLine/onExit 更新页面。"],
   refresh: ["refresh：执行启动器的 refresh 回调。", "适合重新读取文件、数据库或 API。"],
   notify: ["notify：设置 state.notice。", "也可以用 set 修改任意提示变量。"],
   if: ["if：根据 condition 执行 then 或 else。", "支持 notEmpty、equals、all、any 等条件。"]
 };
 
 const ROOT_HELP = {
+  i18n: ["i18n：应用语言模块。", "用 locale 绑定语言变量，用 locales 映射外部 YAML/JSON 语言文件。"],
   data: ["data：应用共享数据。", "多个页面都需要的任务、用户和配置通常放在这里。"],
   state: ["state：当前页面自己的临时变量。", "例如 selected、title、loading 和 error。"],
   params: ["params：进入当前页面时收到的参数。", "由 push、go、replace 或 reset 传入。"],
@@ -49,20 +58,23 @@ const ROOT_HELP = {
   index: ["index：list 当前项目的序号，从 0 开始。", "只在 list 项目表达式中可用。"]
 };
 
-const COMPONENTS = ["text", "input", "column", "row", "panel", "list", "divider", "spacer"];
+const COMPONENTS = ["text", "input", "column", "row", "panel", "popup", "progress", "list", "divider", "spacer"];
 const KEY_NAMES = ["up", "down", "left", "right", "enter", "escape", "space", "backspace", "character"];
 const STYLES = ["title", "primary", "selected", "muted", "border", "success", "warning", "danger", "input"];
 const PAGE_FIELDS = ["title", "state", "layout", "keys", "on"];
 const PAGE_ROOT_FIELDS = ["name", "title", "state", "layout", "keys", "on"];
-const ROOT_FIELDS = ["initial", "data", "pages"];
-const LAYOUT_FIELDS = ["type", "children", "child", "value", "bind", "template", "visible", "style", "padding", "gap", "flex"];
+const ROOT_FIELDS = ["initial", "data", "i18n", "pages"];
+const I18N_FIELDS = ["locale", "fallback", "locales"];
+const LAYOUT_FIELDS = ["type", "children", "child", "value", "message", "bind", "template", "visible", "style", "placeholderStyle", "padding", "gap", "width", "height", "max", "label", "showValue", "filled", "empty", "flex", "mask"];
 const KEY_TRIGGER_CHARACTERS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
 const COMPONENT_FIELDS = {
   text: ["value", "bind", "template", "style", "visible"],
-  input: ["bind", "placeholder", "character", "style", "visible"],
+  input: ["bind", "placeholder", "character", "mask", "placeholderStyle", "style", "visible"],
   column: ["children", "gap", "padding", "style", "visible"],
   row: ["children", "gap", "padding", "style", "visible"],
   panel: ["title", "child", "children", "style", "flex", "visible"],
+  popup: ["title", "child", "children", "message", "width", "height", "padding", "style", "border", "borderStyle", "titleStyle", "visible"],
+  progress: ["bind", "value", "max", "label", "showValue", "filled", "empty", "style", "visible"],
   list: ["items", "selected", "label", "description", "itemStyle", "selectedStyle", "visible"],
   divider: ["character", "style", "visible"],
   spacer: ["height", "lines", "visible"]
@@ -80,7 +92,7 @@ const ACTION_FIELDS = {
   reset: ["page", "route", "params"],
   pop: ["result"],
   quit: ["code"],
-  call: ["with", "args"],
+  call: ["service", "with", "sh", "command", "args", "cwd", "env", "stdio", "blocking", "wait", "result", "stdout", "stderr", "lines", "stderrLines", "json", "code", "check", "interpreter", "maxBuffer", "onLine", "onExit"],
   if: ["condition", "then", "else"]
 };
 const ACTION_CONTAINER_KEYS = new Set(["keys", "on", "then", "else"]);
@@ -106,6 +118,8 @@ const LAYOUT_LIST_ITEMS = [
   { label: "column", detail: "垂直布局节点", body: "type: column\nchildren:\n  - ${1:text}" },
   { label: "row", detail: "水平布局节点", body: "type: row\nchildren:\n  - ${1:text}" },
   { label: "panel", detail: "面板组件节点", body: "type: panel\ntitle: \"${1:标题}\"\nchild:\n  type: text" },
+  { label: "popup", detail: "弹窗组件节点", body: "type: popup\ntitle: \"${1:提示}\"\nwidth: ${2:40}\nheight: ${3:8}\nmessage: \"${4:内容}\"" },
+  { label: "progress", detail: "进度条组件节点", body: "type: progress\nbind: ${1:state.progress}\nmax: ${2:100}\nlabel: \"${3:进度}\"" },
   { label: "list", detail: "列表组件节点", body: "type: list\nitems: ${1:data.items}\nselected: ${2:state.selected}" },
   { label: "divider", detail: "分隔线组件节点", body: "type: divider" },
   { label: "spacer", detail: "空白组件节点", body: "type: spacer\nheight: ${1:1}" }
@@ -127,6 +141,8 @@ let previewPage;
 let previewTimer;
 let previewReady = false;
 let previewNonce;
+let previewLocales = {};
+let previewLocaleUris = new Set();
 
 function isPageTuiDocument(document) {
   if (!document) return false;
@@ -230,6 +246,12 @@ function structuralFields(document, lineNumber) {
   const stack = syntaxStack(document, lineNumber);
   const keys = stack.map((item) => item.key);
   if (keys.includes("keys")) return [];
+  if (keys[0] === "i18n") {
+    const current = keys.at(-1);
+    if (current === "locale" || current === "language") return ["bind", "value"];
+    if (["locales", "files", "sources"].includes(current)) return [];
+    return I18N_FIELDS;
+  }
   const type = [...stack].reverse().find((item) => item.key === "type")?.value;
   if (type && COMPONENT_FIELDS[type]) return COMPONENT_FIELDS[type];
   const action = isActionContext(document, lineNumber)
@@ -383,7 +405,7 @@ function provideCompletions(document, position) {
       append: "append:\n  path: ${1:state.title}\n  value:\n    bind: key.value",
       push: "push:\n  page: ${1:detail}\n  params:\n    ${2:item}:\n      bind: ${3:state.item}",
       pop: "pop",
-      call: "call: ${1:tasks.save}\n  with:\n    value:\n      bind: ${2:state.value}",
+      call: "call:\n  sh: ${1:echo hello}\n  stdio: pipe\n  result: ${2:state.callResult}",
       refresh: "refresh",
       if: "if:\n  condition:\n    notEmpty: ${1:state.title}\n  then:\n    - ${2:pop}\n  else:\n    - set:\n        path: ${3:state.error}\n        value: \\\"${4:请输入内容}\\\""
     };
@@ -423,7 +445,7 @@ function provideHover(document, position) {
     return new vscode.Hover(markdown("**" + ROOT_HELP[root][0] + "**\n\n" + ROOT_HELP[root][1]), range);
   }
   if (document.lineAt(position.line).text.includes("{{")) {
-    return new vscode.Hover(markdown("**Page TUI 模板**\n\n使用 data.x、state.x、params.x 等路径读取变量。当前支持 if、count、length、upper、lower 和 default。"), range);
+    return new vscode.Hover(markdown("**Page TUI 模板**\n\n使用 data.x、state.x、params.x 等路径读取变量。当前支持 t、if、count、length、upper、lower 和 default。"), range);
   }
   return undefined;
 }
@@ -572,7 +594,9 @@ function previewMessage(model) {
 
 function updatePreview() {
   if (!previewPanel || !previewDocument) return;
-  if (!previewSession) previewSession = createPreviewSession(previewDocument.getText(), previewPage);
+  if (!previewSession) {
+    previewSession = createPreviewSession(previewDocument.getText(), previewPage, { locales: previewLocales });
+  }
   const model = previewSession.model();
   if (model.pageName) previewPage = model.pageName;
   if (!previewReady) {
@@ -583,17 +607,22 @@ function updatePreview() {
 }
 
 function schedulePreviewUpdate(document) {
-  if (!previewPanel || !previewDocument || document.uri.toString() !== previewDocument.uri.toString()) return;
+  if (!previewPanel || !previewDocument) return;
+  const uri = document.uri.toString();
+  if (uri !== previewDocument.uri.toString() && !previewLocaleUris.has(uri)) return;
   clearTimeout(previewTimer);
-  previewTimer = setTimeout(() => {
+  previewTimer = setTimeout(async () => {
     previewTimer = undefined;
     const currentPage = previewSession?.model().pageName || previewPage;
-    previewSession = createPreviewSession(document.getText(), currentPage);
+    const loaded = await loadExternalLocaleDocuments(previewDocument);
+    previewLocales = loaded.locales;
+    previewLocaleUris = loaded.uris;
+    previewSession = createPreviewSession(previewDocument.getText(), currentPage, { locales: previewLocales });
     updatePreview();
   }, 120);
 }
 
-function openPreview() {
+async function openPreview() {
   const editor = vscode.window.activeTextEditor;
   if (!editor || !isPageTuiDocument(editor.document)) {
     vscode.window.showWarningMessage("请先打开 app.yaml 或 Page TUI YAML 页面。");
@@ -603,7 +632,14 @@ function openPreview() {
   const sameDocument = previewDocument?.uri.toString() === editor.document.uri.toString();
   previewDocument = editor.document;
   if (!sameDocument) previewPage = undefined;
-  previewSession = createPreviewSession(editor.document.getText(), sameDocument ? previewPage : undefined);
+  const loaded = await loadExternalLocaleDocuments(editor.document);
+  previewLocales = loaded.locales;
+  previewLocaleUris = loaded.uris;
+  previewSession = createPreviewSession(
+    editor.document.getText(),
+    sameDocument ? previewPage : undefined,
+    { locales: previewLocales }
+  );
 
   if (previewPanel) {
     previewPanel.reveal(vscode.ViewColumn.Beside);
@@ -627,6 +663,8 @@ function openPreview() {
     previewSession = undefined;
     previewPage = undefined;
     previewReady = false;
+    previewLocales = {};
+    previewLocaleUris = new Set();
   });
   previewPanel.webview.onDidReceiveMessage((message) => {
     if (message?.type === "ready") {
@@ -645,6 +683,52 @@ function openPreview() {
     }
   });
   updatePreview();
+}
+
+async function loadExternalLocaleDocuments(document) {
+  const result = {
+    locales: Object.create(null),
+    documents: Object.create(null),
+    uris: new Set()
+  };
+  if (document.uri.scheme !== "file") return result;
+
+  let root;
+  try {
+    root = YAML.parse(document.getText()) || {};
+  } catch {
+    return result;
+  }
+  const definition = root.i18n;
+  if (!definition || typeof definition !== "object" || Array.isArray(definition)) return result;
+  const sources = definition.locales || definition.files || definition.sources;
+  if (!sources || typeof sources !== "object" || Array.isArray(sources)) return result;
+
+  for (const [locale, source] of Object.entries(sources)) {
+    if (typeof source !== "string") continue;
+    const uri = vscode.Uri.file(path.resolve(path.dirname(document.uri.fsPath), source));
+    result.uris.add(uri.toString());
+    const info = {
+      uri,
+      fileName: uri.fsPath
+    };
+    result.documents[locale] = info;
+    try {
+      const localeDocument = await vscode.workspace.openTextDocument(uri);
+      info.source = localeDocument.getText();
+      const messages = YAML.parse(info.source);
+      if (!messages || typeof messages !== "object" || Array.isArray(messages)) {
+        info.error = "语言文件的根节点必须是对象。";
+        continue;
+      }
+      info.value = messages;
+      result.locales[locale] = messages;
+    } catch (error) {
+      info.error = error.message || String(error);
+      // 语言文件缺失或尚未写完时保留翻译键，下一次编辑会重新加载。
+    }
+  }
+  return result;
 }
 
 async function loadExternalPageDocuments(document) {
@@ -676,20 +760,32 @@ async function loadExternalPageDocuments(document) {
   return pages;
 }
 
-function createVisualEditorProvider() {
+function createVisualEditorProvider(extensionUri) {
   return {
     async resolveCustomTextEditor(document, webviewPanel) {
-      webviewPanel.webview.options = { enableScripts: true };
+      const mediaRoot = vscode.Uri.joinPath(extensionUri, "media");
+      webviewPanel.webview.options = {
+        enableScripts: true,
+        localResourceRoots: [mediaRoot]
+      };
       let selectedPage;
       let selectedPath = [];
       let externalPages = await loadExternalPageDocuments(document);
+      let externalLocales = (await loadExternalLocaleDocuments(document)).documents;
+      let selectedLocale;
+      let selectedTranslationPath;
       let operationQueue = Promise.resolve();
 
       const model = () => buildVisualModel(
         document.getText(),
         selectedPage,
         selectedPath,
-        { externalPages }
+        {
+          externalPages,
+          externalLocales,
+          selectedLocale,
+          selectedTranslationPath
+        }
       );
 
       const sendModel = () => {
@@ -699,10 +795,23 @@ function createVisualEditorProvider() {
         });
       };
 
-      webviewPanel.webview.html = createVisualEditorHtml(model());
+      webviewPanel.webview.html = createVisualEditorHtml(model(), {
+        cspSource: webviewPanel.webview.cspSource,
+        workflowScriptUri: webviewPanel.webview.asWebviewUri(
+          vscode.Uri.joinPath(mediaRoot, "workflow-editor.js")
+        ),
+        workflowStyleUri: webviewPanel.webview.asWebviewUri(
+          vscode.Uri.joinPath(mediaRoot, "workflow-editor.css")
+        )
+      });
 
-      const reloadExternalPages = async () => {
-        externalPages = await loadExternalPageDocuments(document);
+      const reloadExternalResources = async () => {
+        const [pages, locales] = await Promise.all([
+          loadExternalPageDocuments(document),
+          loadExternalLocaleDocuments(document)
+        ]);
+        externalPages = pages;
+        externalLocales = locales.documents;
       };
 
       const replaceDocumentText = async (target, nextText) => {
@@ -716,20 +825,180 @@ function createVisualEditorProvider() {
         if (!applied) throw new Error("VS Code 没有接受这次 YAML 修改。");
       };
 
+      const manifestRoot = () => {
+        const root = YAML.parse(document.getText()) || {};
+        if (!root || typeof root !== "object" || Array.isArray(root)) {
+          throw new Error("manifest 根节点必须是对象。");
+        }
+        return root;
+      };
+
+      const addLocale = async (message) => {
+        if (document.uri.scheme !== "file") throw new Error("只能为本地 manifest 创建语言文件。");
+        const locale = String(message.locale || "").trim();
+        if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(locale)) {
+          throw new Error("语言代码只能包含字母、数字、连字符和下划线。");
+        }
+        if (["__proto__", "constructor", "prototype"].includes(locale)) {
+          throw new Error("这个语言代码会与对象字段冲突，请换一个名称。");
+        }
+        const root = manifestRoot();
+        if (root.i18n !== undefined
+          && (!root.i18n || typeof root.i18n !== "object" || Array.isArray(root.i18n))) {
+          throw new Error("i18n 必须是对象，才能添加语言文件。");
+        }
+        const currentModel = model();
+        if (currentModel.mode !== "manifest") throw new Error("请在 app.yaml 中创建语言文件。");
+        if (currentModel.i18n?.locales?.some((entry) => entry.code === locale)) {
+          selectedLocale = locale;
+          selectedTranslationPath = undefined;
+          sendModel();
+          return;
+        }
+        const sourceField = currentModel.i18n?.sourceField || "locales";
+        const sourceContainer = root.i18n?.[sourceField];
+        if (sourceContainer !== undefined
+          && (!sourceContainer || typeof sourceContainer !== "object" || Array.isArray(sourceContainer))) {
+          throw new Error(`i18n.${sourceField} 必须是对象。`);
+        }
+
+        let relativeFile = String(message.file || "").trim().replace(/\\/g, "/")
+          || `locales/${locale}.yaml`;
+        if (!/\.(?:ya?ml|json)$/i.test(relativeFile)) relativeFile += ".yaml";
+        if (path.isAbsolute(relativeFile) || relativeFile.includes("\0")) {
+          throw new Error("语言文件路径必须是 manifest 目录内的相对路径。");
+        }
+        const manifestDirectory = path.dirname(document.uri.fsPath);
+        const filePath = path.resolve(manifestDirectory, relativeFile);
+        const containedPath = path.relative(manifestDirectory, filePath);
+        if (!containedPath || containedPath === ".." || containedPath.startsWith(`..${path.sep}`) || path.isAbsolute(containedPath)) {
+          throw new Error("语言文件路径不能离开 manifest 目录。");
+        }
+
+        const fileUri = vscode.Uri.file(filePath);
+        let fileExists = true;
+        try {
+          await vscode.workspace.fs.stat(fileUri);
+        } catch {
+          fileExists = false;
+        }
+        if (!fileExists) {
+          await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(filePath)));
+          await vscode.workspace.fs.writeFile(fileUri, Buffer.from("{}\n", "utf8"));
+        }
+
+        let nextText = document.getText();
+        if (root.i18n?.locale === undefined) {
+          const localeSpec = root.data && Object.prototype.hasOwnProperty.call(root.data, "locale")
+            ? { bind: "data.locale" }
+            : locale;
+          nextText = applyVisualOperation(nextText, {
+            type: "set",
+            path: ["i18n", "locale"],
+            value: localeSpec
+          });
+        }
+        if (root.i18n?.fallback === undefined && root.i18n?.default === undefined) {
+          nextText = applyVisualOperation(nextText, {
+            type: "set",
+            path: ["i18n", "fallback"],
+            value: locale
+          });
+        }
+        nextText = applyVisualOperation(nextText, {
+          type: "set",
+          path: ["i18n", sourceField, locale],
+          value: relativeFile
+        });
+        await replaceDocumentText(document, nextText);
+        await reloadExternalResources();
+        selectedLocale = locale;
+        selectedTranslationPath = undefined;
+        sendModel();
+      };
+
+      const deleteLocale = async (locale) => {
+        const currentModel = model();
+        const entry = currentModel.i18n?.locales?.find((item) => item.code === locale);
+        if (!entry) return;
+        const confirmed = await vscode.window.showWarningMessage(
+          `确定移除语言“${locale}”吗？外部语言文件不会被删除。`,
+          { modal: true },
+          "移除语言"
+        );
+        if (confirmed !== "移除语言") return;
+
+        const root = manifestRoot();
+        const definition = root.i18n || {};
+        const sourceField = currentModel.i18n.sourceField || "locales";
+        const remainingLocale = currentModel.i18n.locales
+          .map((item) => item.code)
+          .find((code) => code !== locale);
+        let nextText = applyVisualOperation(document.getText(), {
+          type: "delete",
+          path: ["i18n", sourceField, locale]
+        });
+        if (definition.fallback === locale) {
+          nextText = applyVisualOperation(nextText, remainingLocale
+            ? { type: "set", path: ["i18n", "fallback"], value: remainingLocale }
+            : { type: "delete", path: ["i18n", "fallback"] });
+        }
+        if (definition.default === locale) {
+          nextText = applyVisualOperation(nextText, remainingLocale
+            ? { type: "set", path: ["i18n", "default"], value: remainingLocale }
+            : { type: "delete", path: ["i18n", "default"] });
+        }
+        if (definition.locale === locale) {
+          nextText = applyVisualOperation(nextText, remainingLocale
+            ? { type: "set", path: ["i18n", "locale"], value: remainingLocale }
+            : { type: "delete", path: ["i18n", "locale"] });
+        } else if (definition.locale?.value === locale) {
+          nextText = applyVisualOperation(nextText, remainingLocale
+            ? { type: "set", path: ["i18n", "locale", "value"], value: remainingLocale }
+            : { type: "delete", path: ["i18n", "locale"] });
+        }
+        await replaceDocumentText(document, nextText);
+        await reloadExternalResources();
+        selectedLocale = undefined;
+        selectedTranslationPath = undefined;
+        sendModel();
+      };
+
       const runOperation = async (message) => {
         const operationPage = selectedPage;
-        const targetInfo = message.target === "manifest"
-          ? undefined
-          : externalPages[operationPage];
+        const currentModel = model();
+        const locale = typeof message.locale === "string" ? message.locale : selectedLocale;
+        const localeEntry = currentModel.i18n?.locales?.find((entry) => entry.code === locale);
+        let operation = message.operation;
+        let targetInfo;
+        if (message.target === "locale") {
+          if (!localeEntry) throw new Error("找不到要编辑的语言。");
+          if (localeEntry.external) {
+            targetInfo = externalLocales[locale];
+            if (!targetInfo?.uri) throw new Error(`找不到语言文件：${localeEntry.source}`);
+          } else {
+            operation = {
+              ...operation,
+              path: ["i18n", currentModel.i18n.sourceField, locale].concat(operation?.path || [])
+            };
+          }
+        } else if (message.target !== "manifest") {
+          targetInfo = externalPages[operationPage];
+        }
         const target = targetInfo
           ? await vscode.workspace.openTextDocument(targetInfo.uri)
           : document;
         const source = target.getText();
-        const nextText = applyVisualOperation(source, message.operation);
+        const jsonLocale = message.target === "locale"
+          && targetInfo
+          && path.extname(target.fileName).toLowerCase() === ".json";
+        const nextText = jsonLocale
+          ? applyJsonOperation(source, operation)
+          : applyVisualOperation(source, operation);
         if (nextText === source) return;
         await replaceDocumentText(target, nextText);
         if (targetInfo) targetInfo.source = nextText;
-        if (message.operation?.type === "deletePage" && message.operation.page === selectedPage) {
+        if (operation?.type === "deletePage" && operation.page === selectedPage) {
           selectedPage = undefined;
           selectedPath = [];
         }
@@ -739,18 +1008,27 @@ function createVisualEditorProvider() {
       const changeSubscription = vscode.workspace.onDidChangeTextDocument((event) => {
         const uri = event.document.uri.toString();
         if (uri === document.uri.toString()) {
-          void reloadExternalPages().then(sendModel);
+          void reloadExternalResources().then(sendModel);
           return;
         }
         if (Object.values(externalPages).some((info) => info.uri.toString() === uri)) {
           const info = Object.values(externalPages).find((item) => item.uri.toString() === uri);
           if (info) info.source = event.document.getText();
           sendModel();
+          return;
+        }
+        if (Object.values(externalLocales).some((info) => info.uri.toString() === uri)) {
+          const info = Object.values(externalLocales).find((item) => item.uri.toString() === uri);
+          if (info) {
+            info.source = event.document.getText();
+            info.error = undefined;
+          }
+          sendModel();
         }
       });
-      const enqueueOperation = (message) => {
+      const enqueueTask = (task) => {
         operationQueue = operationQueue
-          .then(() => runOperation(message))
+          .then(task)
           .catch((error) => {
             webviewPanel.webview.postMessage({
               type: "error",
@@ -759,6 +1037,7 @@ function createVisualEditorProvider() {
           });
         return operationQueue;
       };
+      const enqueueOperation = (message) => enqueueTask(() => runOperation(message));
       const messageSubscription = webviewPanel.webview.onDidReceiveMessage(async (message) => {
         if (!message || typeof message.type !== "string") return;
         if (message.type === "ready") {
@@ -768,12 +1047,71 @@ function createVisualEditorProvider() {
         if (message.type === "selectPage") {
           selectedPage = typeof message.page === "string" ? message.page : undefined;
           selectedPath = [];
+          selectedLocale = undefined;
+          selectedTranslationPath = undefined;
           sendModel();
           return;
         }
         if (message.type === "selectNode") {
           selectedPath = Array.isArray(message.path) ? message.path : [];
+          selectedLocale = undefined;
+          selectedTranslationPath = undefined;
           sendModel();
+          return;
+        }
+        if (message.type === "selectLocale") {
+          selectedLocale = typeof message.locale === "string" ? message.locale : undefined;
+          selectedTranslationPath = undefined;
+          sendModel();
+          return;
+        }
+        if (message.type === "selectTranslation") {
+          selectedLocale = typeof message.locale === "string" ? message.locale : undefined;
+          selectedTranslationPath = Array.isArray(message.path) ? message.path : undefined;
+          sendModel();
+          return;
+        }
+        if (message.type === "addLocale") {
+          await enqueueTask(() => addLocale(message));
+          return;
+        }
+        if (message.type === "deleteLocale") {
+          const locale = typeof message.locale === "string" ? message.locale : "";
+          if (locale) await enqueueTask(() => deleteLocale(locale));
+          return;
+        }
+        if (message.type === "addTranslation") {
+          const locale = typeof message.locale === "string" ? message.locale : "";
+          const translationPath = Array.isArray(message.path) ? message.path : [];
+          if (!locale || !translationPath.length) return;
+          selectedLocale = locale;
+          selectedTranslationPath = undefined;
+          const existing = model().i18n?.translations?.some((entry) => (
+            JSON.stringify(entry.path) === JSON.stringify(translationPath)
+          ));
+          selectedTranslationPath = translationPath;
+          if (existing) {
+            sendModel();
+            return;
+          }
+          await enqueueOperation({
+            target: "locale",
+            locale,
+            operation: { type: "set", path: translationPath, value: message.value ?? "" }
+          });
+          return;
+        }
+        if (message.type === "deleteTranslation") {
+          const locale = typeof message.locale === "string" ? message.locale : "";
+          const translationPath = Array.isArray(message.path) ? message.path : [];
+          if (!locale || !translationPath.length) return;
+          selectedLocale = locale;
+          selectedTranslationPath = undefined;
+          await enqueueOperation({
+            target: "locale",
+            locale,
+            operation: { type: "delete", path: translationPath }
+          });
           return;
         }
         if (message.type === "deletePage") {
@@ -796,9 +1134,39 @@ function createVisualEditorProvider() {
           await enqueueOperation(message);
           return;
         }
+        if (message.type === "workflowUpdate") {
+          try {
+            const event = message.workflow?.event;
+            const entry = model().workflows?.find((item) => item.source === event?.source
+              && item.event === event?.event
+              && JSON.stringify(item.path) === JSON.stringify(event?.path));
+            if (!entry) throw new Error("当前页面中找不到这个事务事件。");
+            const actions = workflowToActions(message.workflow);
+            const value = entry.isList === false && actions.length === 1 ? actions[0] : actions;
+            await enqueueOperation({
+              type: "operation",
+              operation: { type: "set", path: entry.path, value }
+            });
+          } catch (error) {
+            webviewPanel.webview.postMessage({
+              type: "error",
+              message: error.message || String(error)
+            });
+          }
+          return;
+        }
         if (message.type === "source") {
           const info = externalPages[selectedPage];
           const sourceDocument = info
+            ? await vscode.workspace.openTextDocument(info.uri)
+            : document;
+          await vscode.window.showTextDocument(sourceDocument, { preview: false });
+          return;
+        }
+        if (message.type === "sourceLocale") {
+          const locale = typeof message.locale === "string" ? message.locale : selectedLocale;
+          const info = externalLocales[locale];
+          const sourceDocument = info?.uri
             ? await vscode.workspace.openTextDocument(info.uri)
             : document;
           await vscode.window.showTextDocument(sourceDocument, { preview: false });
@@ -854,7 +1222,7 @@ function activate(context) {
   context.subscriptions.push(
     vscode.window.registerCustomEditorProvider(
       VISUAL_EDITOR_VIEW_TYPE,
-      createVisualEditorProvider(),
+      createVisualEditorProvider(context.extensionUri),
       {
         webviewOptions: { retainContextWhenHidden: false },
         supportsMultipleEditorsPerDocument: false

@@ -20,9 +20,24 @@ npm start -- path/to/app.yaml
 
 页面作者通常只需要编辑 YAML，不需要维护固定的 Node.js 启动文件。
 
+## 构建二进制
+
+~~~bash
+npm run build -- --manifest examples/arch_installer/app.yaml
+./dist/arch_installer
+~~~
+
+指定 manifest 时，构建产物会内嵌 Page TUI 运行时、UI 渲染逻辑、manifest，以及 manifest 引用的外部页面和语言文件；运行时不再需要传入 YAML。默认输出到 `dist/<manifest 目录名>`，也可以指定文件名：
+
+~~~bash
+npm run build -- --manifest ui/app.yaml --output dist/my-tui
+~~~
+
+这个步骤需要 Node.js 26 或更高版本，因为它依赖 Node 自带的 SEA 构建能力。不指定 manifest 时会构建通用 runner：`dist/page-tui`。
+
 ## 超详细文档
 
-完整中文文档从安装、页面模型、布局、变量、动作、页面栈、Service、组件、高级 API、内部架构、排错、完整项目模板到 VS Code 扩展，共 13 章：
+完整中文文档从安装、页面模型、布局、变量、动作、页面栈、Service、组件、高级 API、内部架构、排错、完整项目模板、VS Code 扩展到外部语言模块，共 14 章：
 
 [打开完整文档目录](docs/README.md)
 
@@ -63,6 +78,23 @@ pages:
 - params.task.title：上一个页面传入的任务标题
 - key.value：用户刚刚输入的字符
 
+### 外部语言模块
+
+~~~yaml
+data:
+  locale: zh-CN
+
+i18n:
+  locale:
+    bind: data.locale
+  fallback: zh-CN
+  locales:
+    zh-CN: locales/zh-CN.yaml
+    en: locales/en.yaml
+~~~
+
+组件文本使用 `{ t: common.title }`，普通模板使用 `{{ t('common.title') }}`。通过 `set data.locale` 即可在运行时切换，独立构建会把语言文件一并内嵌。完整说明见 [外部语言模块与运行时切换](docs/14-internationalization.md)。
+
 ### 布局
 
 布局是一个树，从外到内、从上到下阅读：
@@ -90,7 +122,7 @@ layout:
       style: muted
 ~~~
 
-可用组件：text、input、column、row、panel、list、divider、spacer。
+可用组件：text、input、column、row、panel、popup、progress、list、divider、spacer。
 
 ### 页面跳转
 
@@ -167,13 +199,22 @@ createDeclarativeApp({
 }).start();
 ~~~
 
-YAML 只调用已经注册的名字：
+YAML 既可以调用已经注册的 service：
 
 ~~~yaml
 - call: orders.save
   with:
     order:
       bind: state.order
+~~~
+
+也可以直接执行外部命令：
+
+~~~yaml
+- call:
+    sh: "printf hello"
+    stdio: pipe
+    result: state.lastCall
 ~~~
 
 这样页面作者不需要接触数据库或 Node.js 内部代码。

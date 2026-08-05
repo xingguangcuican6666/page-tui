@@ -21,7 +21,7 @@ function splitPath(path) {
 function isPathReference(value) {
   if (typeof value !== "string") return false;
   const path = value.trim().replace(/^\$/, "");
-  return /^(data|state|params|page|item|key|index|app)(\.|$)/.test(path);
+  return /^(data|state|params|page|item|key|index|app|env)(\.|$)/.test(path);
 }
 
 function rootForPath(path, context) {
@@ -44,6 +44,8 @@ function rootForPath(path, context) {
       return { value: context.index, parts };
     case "app":
       return { value: context.app, parts };
+    case "env":
+      return { value: context.runtime?.env || process.env, parts };
     default:
       return { value: undefined, parts: [] };
   }
@@ -78,8 +80,11 @@ function writePath(path, value, context) {
     case "page":
       root = context.params;
       break;
+    case "env":
+      root = context.runtime?.env || process.env;
+      break;
     default:
-      throw new Error(`只能修改 data、state 或 params 变量，收到：${path}`);
+      throw new Error(`只能修改 data、state、params 或 env 变量，收到：${path}`);
   }
 
   if (!root || !parts.length) {
@@ -123,6 +128,11 @@ function splitArguments(value) {
   return result.filter((item) => item.length > 0);
 }
 
+function isTranslationSpec(value) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    && (Object.hasOwn(value, "t") || Object.hasOwn(value, "i18n"));
+}
+
 function parseLiteral(value) {
   const input = value.trim();
   if ((input.startsWith('"') && input.endsWith('"')) || (input.startsWith("'") && input.endsWith("'"))) {
@@ -149,6 +159,8 @@ function evaluateExpression(expression, context) {
     const name = call[1];
     const args = splitArguments(call[2]).map((argument) => evaluateExpression(argument, context));
     switch (name) {
+      case "t":
+        return translateSpec({ t: args[0] }, context);
       case "if":
         return evaluateCondition(args[0], context) ? args[1] : args[2];
       case "count":
@@ -177,9 +189,26 @@ function renderTemplate(template, context) {
   });
 }
 
+function translateSpec(spec, context) {
+  const key = resolveValue(spec.t ?? spec.i18n, context);
+  if (key == null || key === "") return "";
+  const values = spec.with === undefined && spec.params === undefined
+    ? undefined
+    : resolveValue(spec.with ?? spec.params, context);
+  const nextContext = values && typeof values === "object" && !Array.isArray(values)
+    ? { ...context, params: { ...(context.params || {}), ...values } }
+    : context;
+  const translated = context.runtime?.i18n?.translate
+    ? context.runtime.i18n.translate(key, context)
+    : key;
+  if (typeof translated === "string") return renderTemplate(translated, nextContext);
+  return resolveValue(translated, nextContext);
+}
+
 function resolveValue(value, context) {
   if (Array.isArray(value)) return value.map((item) => resolveValue(item, context));
   if (value && typeof value === "object") {
+    if (isTranslationSpec(value)) return translateSpec(value, context);
     if (Object.hasOwn(value, "bind")) return readPath(value.bind, context);
     if (Object.hasOwn(value, "template")) return renderTemplate(value.template, context);
     if (Object.hasOwn(value, "itemAt")) {
@@ -196,6 +225,7 @@ function resolveValue(value, context) {
     return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, resolveValue(item, context)]));
   }
   if (typeof value === "string" && value.includes("{{")) return renderTemplate(value, context);
+  if (typeof value === "string" && isPathReference(value)) return readPath(value, context);
   if (typeof value === "string" && value.startsWith("$") && isPathReference(value.slice(1))) {
     return readPath(value.slice(1), context);
   }
@@ -247,6 +277,7 @@ module.exports = {
   readReference,
   renderTemplate,
   resolveValue,
+  translateSpec,
   splitPath,
   writePath
 };
