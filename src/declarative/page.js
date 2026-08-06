@@ -252,7 +252,7 @@ function activeInputTarget(layout, context) {
 
 function shellBinary() {
   if (process.platform === "win32") return process.env.ComSpec || "cmd.exe";
-  return process.env.SHELL || "/bin/sh";
+  return "/bin/sh";
 }
 
 function outputCaptureRequested(config) {

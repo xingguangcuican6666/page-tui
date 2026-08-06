@@ -6,9 +6,18 @@ data:
     keymap: us
   install:
     mountPlan: []
+    mountPlanTsv: ""
     hasRoot: false
     hasBoot: false
     partitionReady: false
+    rootPartition:
+      line: ""
+      format: preserve
+      mountPoint: /mnt
+    bootPartition:
+      line: ""
+      format: preserve
+      mountPoint: /mnt/boot
     newUser:
       name: ""
       password: ""
@@ -16,6 +25,13 @@ data:
     rootPasswordSameAsUser: true
     hostname: ""
     userReady: false
+    installProfile:
+      type: ""
+      label: ""
+      description: ""
+      packages: []
+      custom: false
+    installProfileReady: false
 
 pages:
   home:
@@ -1212,14 +1228,14 @@ pages:
       type: column
       children:
         - type: panel
-          title: 选择分区挂载方式
+          title: 选择所有磁盘分区
           flex: true
           child:
             type: column
             gap: 1
             children:
               - type: text
-                value: "目标磁盘：{{ params.diskLine }}"
+                value: 从所有磁盘读取分区，/ 和 /boot 可以来自不同磁盘
                 visible: { equals: [ state.failed, false ] }
               - type: text
                 value: 请选择要配置的分区，按 Enter 设置挂载方式和格式化方式。
@@ -1316,6 +1332,9 @@ pages:
             path: data.install.mountPlan
             value: []
         - set:
+            path: data.install.mountPlanTsv
+            value: ""
+        - set:
             path: data.install.hasRoot
             value: false
         - set:
@@ -1331,15 +1350,8 @@ pages:
                 echo "系统没有找到 lsblk" >&2
                 exit 127
               fi
-              DISK="$(printf '%s\n' "$DISK_LINE" | awk '{ print $1 }')"
-              if [ -z "$DISK" ]; then
-                echo "没有找到目标磁盘" >&2
-                exit 2
-              fi
-              lsblk -lnpo NAME,SIZE,FSTYPE,TYPE,MOUNTPOINT "$DISK" |
+              lsblk -lnpo NAME,SIZE,FSTYPE,TYPE,MOUNTPOINT |
                 awk '$4 == "part" { printf "%s  %s  %s  %s\n", $1, $2, ($3 == "" ? "-" : $3), ($5 == "" ? "-" : $5) }'
-            env:
-              DISK_LINE: { bind: params.diskLine }
             wait: true
             stdio: pipe
             lines: state.partitionLines
@@ -1405,6 +1417,9 @@ pages:
       mountModeSelected: 0
       formatSelected: 0
       mountPoint: ""
+      savedMountMode: ""
+      savedMountPoint: ""
+      savedFormat: preserve
       focus: mount
       status: 请选择挂载方式
     layout:
@@ -1548,6 +1563,40 @@ pages:
                               path: state.status
                               value: 自定义挂载点不能为空
                         else:
+                          - set:
+                              path: state.savedMountMode
+                              value:
+                                itemAt:
+                                  list: state.mountModes
+                                  index: state.mountModeSelected
+                                  key: value
+                          - set:
+                              path: state.savedMountPoint
+                              value:
+                                itemAt:
+                                  list: state.mountModes
+                                  index: state.mountModeSelected
+                                  key: mountPoint
+                          - if:
+                              condition: { equals: [ state.mountModeSelected, 5 ] }
+                              then:
+                                - set:
+                                    path: state.savedMountPoint
+                                    value: { bind: state.mountPoint }
+                              else:
+                                - if:
+                                    condition: { equals: [ state.savedMountPoint, "" ] }
+                                    then:
+                                      - set:
+                                          path: state.savedMountPoint
+                                          value: "-"
+                          - set:
+                              path: state.savedFormat
+                              value:
+                                itemAt:
+                                  list: state.formatOptions
+                                  index: state.formatSelected
+                                  key: value
                           - append:
                               list: data.install.mountPlan
                               value:
@@ -1568,12 +1617,25 @@ pages:
                                     list: state.formatOptions
                                     index: state.formatSelected
                                     key: value
+                          - append:
+                              path: data.install.mountPlanTsv
+                              value: "{{ params.partitionLine }}\t{{ state.savedMountMode }}\t{{ state.savedMountPoint }}\t{{ state.savedFormat }}\n"
                           - if:
                               condition: { equals: [ state.mountModeSelected, 1 ] }
                               then:
-                                - set:
-                                    path: data.install.hasRoot
-                                    value: true
+                                                                          - set:
+                                                                              path: data.install.hasRoot
+                                                                              value: true
+                                                                          - set:
+                                                                              path: data.install.rootPartition.line
+                                                                              value: { bind: params.partitionLine }
+                                                                          - set:
+                                                                              path: data.install.rootPartition.format
+                                                                              value:
+                                                                                itemAt:
+                                                                                  list: state.formatOptions
+                                                                                  index: state.formatSelected
+                                                                                  key: value
                               else:
                                 - if:
                                     condition: { equals: [ state.mountModeSelected, 2 ] }
@@ -1581,6 +1643,16 @@ pages:
                                       - set:
                                           path: data.install.hasBoot
                                           value: true
+                                      - set:
+                                          path: data.install.bootPartition.line
+                                          value: { bind: params.partitionLine }
+                                      - set:
+                                          path: data.install.bootPartition.format
+                                          value:
+                                            itemAt:
+                                              list: state.formatOptions
+                                              index: state.formatSelected
+                                              key: value
                           - pop: {}
   user-hostname:
     title: 新用户与主机名
@@ -1940,6 +2012,9 @@ pages:
                                                                           - set:
                                                                               path: state.status
                                                                               value: 用户、root 密码和主机名已保存，可以进入后续安装步骤
+                                                                          - push:
+                                                                              page: install-profile
+                                                                              params: {}
                                                             else:
                                                               - set:
                                                                   path: data.install.newUser.name
@@ -1965,6 +2040,9 @@ pages:
                                                               - set:
                                                                   path: state.status
                                                                   value: 用户、root 密码和主机名已保存，可以进入后续安装步骤
+                                                              - push:
+                                                                  page: install-profile
+                                                                  params: {}
     on:
       enter:
         - set:
@@ -1988,6 +2066,295 @@ pages:
               - set:
                   path: state.rootPasswordModeSelected
                   value: 1
+  install-profile:
+    title: 安装类型
+    state:
+      selected: 0
+      status: 请选择安装类型
+      saved: false
+      profiles:
+        - label: 基础安装
+          value: basic
+          description: 安装最小可启动系统和必要网络工具
+          custom: false
+          packages: []
+        - label: 完整安装
+          value: full
+          description: 在基础安装上加入常用桌面、声音、蓝牙和开发工具
+          custom: false
+          packages: []
+        - label: 自定义安装
+          value: custom
+          description: 先保存自定义模式，后续步骤再选择包组和额外软件
+          custom: true
+          packages:
+            - base
+            - linux
+            - linux-firmware
+    layout:
+      type: column
+      children:
+        - type: panel
+          title: 安装类型
+          flex: true
+          child:
+            type: column
+            gap: 1
+            children:
+              - type: text
+                value: 请选择这次安装的包范围
+              - type: list
+                items: state.profiles
+                selected: state.selected
+                label: "{{ item.label }}"
+                description: "{{ item.description }}"
+              - type: text
+                value: "当前选择：{{ data.install.installProfile.label }}"
+                visible: { equals: [ state.saved, true ] }
+              - type: text
+                value: { bind: state.status }
+        - type: text
+          value: ↑/↓ 选择   Enter 保存   Esc 返回
+          style: muted
+    keys:
+      q:
+        - pop: {}
+      escape:
+        - pop: {}
+      up:
+        - move:
+            path: state.selected
+            by: -1
+            list: state.profiles
+      down:
+        - move:
+            path: state.selected
+            by: 1
+            list: state.profiles
+      enter:
+        - set:
+            path: data.install.installProfile.type
+            value:
+              itemAt:
+                list: state.profiles
+                index: state.selected
+                key: value
+        - set:
+            path: data.install.installProfile.label
+            value:
+              itemAt:
+                list: state.profiles
+                index: state.selected
+                key: label
+        - set:
+            path: data.install.installProfile.description
+            value:
+              itemAt:
+                list: state.profiles
+                index: state.selected
+                key: description
+        - set:
+            path: data.install.installProfile.packages
+            value:
+              itemAt:
+                list: state.profiles
+                index: state.selected
+                key: packages
+        - set:
+            path: data.install.installProfile.custom
+            value:
+              itemAt:
+                list: state.profiles
+                index: state.selected
+                key: custom
+        - set:
+            path: data.install.installProfileReady
+            value: true
+        - set:
+            path: state.saved
+            value: true
+        - set:
+            path: state.status
+            value: "已选择 {{ data.install.installProfile.label }}，后续安装会使用对应包清单"
+        - push:
+            page: install-run
+            params: {}
+    on:
+      enter:
+        - if:
+            condition: { notEquals: [ data.install.installProfile.type, "" ] }
+            then:
+              - set:
+                  path: state.saved
+                  value: true
+              - if:
+                  condition: { equals: [ data.install.installProfile.type, full ] }
+                  then:
+                    - set:
+                        path: state.selected
+                        value: 1
+                  else:
+                    - if:
+                        condition: { equals: [ data.install.installProfile.type, custom ] }
+                        then:
+                          - set:
+                              path: state.selected
+                              value: 2
+                        else:
+                          - set:
+                              path: state.selected
+                              value: 0
+  install-run:
+    title: 执行安装
+    state:
+      status: 按 Enter 执行对应安装脚本
+      running: false
+      exitCode: null
+      failed: false
+    layout:
+      type: column
+      children:
+        - type: panel
+          title: 执行安装
+          flex: true
+          child:
+            type: column
+            gap: 1
+            children:
+              - type: text
+                value: "安装类型：{{ data.install.installProfile.label }} ({{ data.install.installProfile.type }})"
+              - type: text
+                value: "脚本：examples/arch_installer/scripts/install-basic.sh"
+                visible: { equals: [ data.install.installProfile.type, basic ] }
+              - type: text
+                value: "脚本：examples/arch_installer/scripts/install-full.sh"
+                visible: { equals: [ data.install.installProfile.type, full ] }
+              - type: text
+                value: "脚本：examples/arch_installer/scripts/install-custom.sh"
+                visible: { equals: [ data.install.installProfile.type, custom ] }
+              - type: text
+                value: "根分区：{{ data.install.rootPartition.line }}   格式化：{{ data.install.rootPartition.format }}"
+              - type: text
+                value: "Boot 分区：{{ data.install.bootPartition.line }}   格式化：{{ data.install.bootPartition.format }}"
+              - type: text
+                value: "用户：{{ data.install.newUser.name }}   主机名：{{ data.install.hostname }}"
+              - type: text
+                value: { bind: state.status }
+        - type: text
+          value: Enter 执行脚本   Esc 返回安装类型
+          style: muted
+    keys:
+      q:
+        - pop: {}
+      escape:
+        - pop: {}
+      enter:
+        - set:
+            path: state.running
+            value: true
+        - set:
+            path: state.failed
+            value: false
+        - set:
+            path: state.status
+            value: 正在执行安装脚本...
+        - if:
+            condition: { equals: [ data.install.installProfile.type, basic ] }
+            then:
+              - call:
+                  sh: sh examples/arch_installer/scripts/install-basic.sh
+                  wait: true
+                  stdio: inherit
+                  code: state.exitCode
+                  env:
+                    INSTALL_PROFILE: { bind: data.install.installProfile.type }
+                    INSTALL_PROFILE_LABEL: { bind: data.install.installProfile.label }
+                    INSTALL_PROFILE_CUSTOM: "{{ data.install.installProfile.custom }}"
+                    SYSTEM_LANG: { bind: data.system.lang }
+                    SYSTEM_KEYMAP: { bind: data.system.keymap }
+                    ROOT_PARTITION_LINE: { bind: data.install.rootPartition.line }
+                    ROOT_MOUNT_POINT: { bind: data.install.rootPartition.mountPoint }
+                    ROOT_FORMAT: { bind: data.install.rootPartition.format }
+                    BOOT_PARTITION_LINE: { bind: data.install.bootPartition.line }
+                    BOOT_MOUNT_POINT: { bind: data.install.bootPartition.mountPoint }
+                    BOOT_FORMAT: { bind: data.install.bootPartition.format }
+                    MOUNT_PLAN_COUNT: "{{ count(data.install.mountPlan) }}"
+                    MOUNT_PLAN_TSV: { bind: data.install.mountPlanTsv }
+                    NEW_USER: { bind: data.install.newUser.name }
+                    NEW_USER_PASSWORD: { bind: data.install.newUser.password }
+                    ROOT_PASSWORD: { bind: data.install.rootPassword }
+                    ROOT_PASSWORD_SAME_AS_USER: "{{ data.install.rootPasswordSameAsUser }}"
+                    HOSTNAME: { bind: data.install.hostname }
+            else:
+              - if:
+                  condition: { equals: [ data.install.installProfile.type, full ] }
+                  then:
+                    - call:
+                        sh: sh examples/arch_installer/scripts/install-full.sh
+                        wait: true
+                        stdio: inherit
+                        code: state.exitCode
+                        env:
+                          INSTALL_PROFILE: { bind: data.install.installProfile.type }
+                          INSTALL_PROFILE_LABEL: { bind: data.install.installProfile.label }
+                          INSTALL_PROFILE_CUSTOM: "{{ data.install.installProfile.custom }}"
+                          SYSTEM_LANG: { bind: data.system.lang }
+                          SYSTEM_KEYMAP: { bind: data.system.keymap }
+                          ROOT_PARTITION_LINE: { bind: data.install.rootPartition.line }
+                          ROOT_MOUNT_POINT: { bind: data.install.rootPartition.mountPoint }
+                          ROOT_FORMAT: { bind: data.install.rootPartition.format }
+                          BOOT_PARTITION_LINE: { bind: data.install.bootPartition.line }
+                          BOOT_MOUNT_POINT: { bind: data.install.bootPartition.mountPoint }
+                          BOOT_FORMAT: { bind: data.install.bootPartition.format }
+                          MOUNT_PLAN_COUNT: "{{ count(data.install.mountPlan) }}"
+                          MOUNT_PLAN_TSV: { bind: data.install.mountPlanTsv }
+                          NEW_USER: { bind: data.install.newUser.name }
+                          NEW_USER_PASSWORD: { bind: data.install.newUser.password }
+                          ROOT_PASSWORD: { bind: data.install.rootPassword }
+                          ROOT_PASSWORD_SAME_AS_USER: "{{ data.install.rootPasswordSameAsUser }}"
+                          HOSTNAME: { bind: data.install.hostname }
+                  else:
+                    - call:
+                        sh: sh examples/arch_installer/scripts/install-custom.sh
+                        wait: true
+                        stdio: inherit
+                        code: state.exitCode
+                        env:
+                          INSTALL_PROFILE: { bind: data.install.installProfile.type }
+                          INSTALL_PROFILE_LABEL: { bind: data.install.installProfile.label }
+                          INSTALL_PROFILE_CUSTOM: "{{ data.install.installProfile.custom }}"
+                          INSTALL_PACKAGES_CSV: "{{ data.install.installProfile.packages }}"
+                          SYSTEM_LANG: { bind: data.system.lang }
+                          SYSTEM_KEYMAP: { bind: data.system.keymap }
+                          ROOT_PARTITION_LINE: { bind: data.install.rootPartition.line }
+                          ROOT_MOUNT_POINT: { bind: data.install.rootPartition.mountPoint }
+                          ROOT_FORMAT: { bind: data.install.rootPartition.format }
+                          BOOT_PARTITION_LINE: { bind: data.install.bootPartition.line }
+                          BOOT_MOUNT_POINT: { bind: data.install.bootPartition.mountPoint }
+                          BOOT_FORMAT: { bind: data.install.bootPartition.format }
+                          MOUNT_PLAN_COUNT: "{{ count(data.install.mountPlan) }}"
+                          MOUNT_PLAN_TSV: { bind: data.install.mountPlanTsv }
+                          NEW_USER: { bind: data.install.newUser.name }
+                          NEW_USER_PASSWORD: { bind: data.install.newUser.password }
+                          ROOT_PASSWORD: { bind: data.install.rootPassword }
+                          ROOT_PASSWORD_SAME_AS_USER: "{{ data.install.rootPasswordSameAsUser }}"
+                          HOSTNAME: { bind: data.install.hostname }
+        - set:
+            path: state.running
+            value: false
+        - if:
+            condition: { equals: [ state.exitCode, 0 ] }
+            then:
+              - set:
+                  path: state.status
+                  value: 安装脚本执行完成
+            else:
+              - set:
+                  path: state.failed
+                  value: true
+              - set:
+                  path: state.status
+                  value: "安装脚本退出码 {{ state.exitCode }}，请检查脚本输出后重试"
   bye:
     title: 真的要离开吗 >.<
     state:

@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const YAML = require("yaml");
 const { EventEmitter } = require("node:events");
@@ -59,11 +60,17 @@ function installerDefinition() {
   return definition;
 }
 
-async function startInstaller(definition = installerDefinition()) {
+function writeExecutable(filePath, source) {
+  fs.writeFileSync(filePath, source, { mode: 0o755 });
+  fs.chmodSync(filePath, 0o755);
+}
+
+async function startInstaller(definition = installerDefinition(), options = {}) {
   const app = createDeclarativeApp({
     definition,
     terminal: new Terminal({ input: new FakeInput(), output: new FakeOutput() }),
-    renderer: { render: () => [] }
+    renderer: { render: () => [] },
+    env: options.env
   });
 
   await app.start();
@@ -339,6 +346,45 @@ test("declarative pages can call an allowlisted service", async () => {
 });
 
 const shellTest = process.platform === "win32" ? test.skip : test;
+
+shellTest("sh calls use /bin/sh instead of the user's interactive shell", async () => {
+  const previousShell = process.env.SHELL;
+  process.env.SHELL = "/usr/bin/fish";
+  try {
+    const app = createDeclarativeApp({
+      manifest: {
+        initial: "home",
+        pages: {
+          home: {
+            state: { output: "" },
+            layout: { type: "text", bind: "state.output" },
+            keys: {
+              s: {
+                call: {
+                  sh: "if true; then printf sh-ok; fi",
+                  stdout: "state.output"
+                }
+              }
+            }
+          }
+        }
+      },
+      terminal: new Terminal({ input: new FakeInput(), output: new FakeOutput() }),
+      renderer: { render: () => [] }
+    });
+
+    await app.start();
+    await app.currentPage.onKey(key("s"));
+    assert.equal(app.currentPage.state.output, "sh-ok");
+    app.quit();
+  } finally {
+    if (previousShell === undefined) {
+      delete process.env.SHELL;
+    } else {
+      process.env.SHELL = previousShell;
+    }
+  }
+});
 
 shellTest("declarative pages can call a blocking shell command", async () => {
   const app = createDeclarativeApp({
@@ -755,6 +801,7 @@ test("arch installer enters timezone, time sync, and partition in order", async 
       format: "ext4"
     }
   ]);
+  assert.equal(success.data.install.mountPlanTsv, "/dev/test1  1G  ext4  -\troot\t/mnt\text4\n");
   assert.equal(success.data.install.hasRoot, true);
   assert.equal(success.data.install.hasBoot, false);
   await success.currentPage.onKey(key("down"));
@@ -773,6 +820,10 @@ test("arch installer enters timezone, time sync, and partition in order", async 
   await success.currentPage.onKey(key("enter"));
   assert.equal(success.currentPage.name, "partition-next");
   assert.equal(success.data.install.hasBoot, true);
+  assert.equal(
+    success.data.install.mountPlanTsv,
+    "/dev/test1  1G  ext4  -\troot\t/mnt\text4\n/dev/test2  512M  vfat  /mnt/boot\tboot\t/mnt/boot\tpreserve\n"
+  );
   await success.currentPage.onKey(key("down"));
   assert.equal(success.currentPage.state.selected, 2);
   await success.currentPage.onKey(key("enter"));
@@ -794,15 +845,55 @@ test("arch installer enters timezone, time sync, and partition in order", async 
   assert.equal(success.data.install.rootPasswordSameAsUser, true);
   assert.equal(success.data.install.hostname, "archlinux");
   assert.equal(success.data.install.userReady, true);
-  assert.equal(success.currentPage.state.saved, true);
+  assert.equal(success.currentPage.name, "install-profile");
+  assert.match(renderView(success.currentPage.render(), 80, 24, { color: false }).join("\n"), /基础安装/);
+  assert.equal(success.currentPage.state.selected, 0);
+  assert.equal(success.data.install.installProfileReady, false);
 
+  await success.currentPage.onKey(key("enter"));
+  assert.equal(success.data.install.installProfileReady, true);
+  assert.equal(success.data.install.installProfile.type, "basic");
+  assert.equal(success.data.install.installProfile.label, "基础安装");
+  assert.equal(success.data.install.installProfile.custom, false);
+  assert.deepEqual(success.data.install.installProfile.packages, []);
+  assert.equal(success.currentPage.name, "install-run");
+  assert.match(renderView(success.currentPage.render(), 80, 24, { color: false }).join("\n"), /install-basic\.sh/);
+
+  await success.currentPage.onKey(key("escape"));
+  assert.equal(success.currentPage.name, "install-profile");
+  await success.currentPage.onKey(key("escape"));
+  assert.equal(success.currentPage.name, "user-hostname");
   success.currentPage.state.rootPasswordModeSelected = 1;
   success.currentPage.state.rootPassword = "root-secret";
   success.currentPage.state.rootPasswordConfirm = "root-secret";
   success.currentPage.state.focus = "hostname";
   await success.currentPage.onKey(key("enter"));
+  assert.equal(success.currentPage.name, "install-profile");
   assert.equal(success.data.install.rootPassword, "root-secret");
   assert.equal(success.data.install.rootPasswordSameAsUser, false);
+  await success.currentPage.onKey(key("down"));
+  assert.equal(success.currentPage.state.selected, 1);
+  await success.currentPage.onKey(key("enter"));
+  assert.equal(success.data.install.installProfile.type, "full");
+  assert.equal(success.data.install.installProfile.label, "完整安装");
+  assert.equal(success.data.install.installProfile.custom, false);
+  assert.deepEqual(success.data.install.installProfile.packages, []);
+  assert.equal(success.currentPage.name, "install-run");
+  assert.match(renderView(success.currentPage.render(), 80, 24, { color: false }).join("\n"), /install-full\.sh/);
+  await success.currentPage.onKey(key("escape"));
+  assert.equal(success.currentPage.name, "install-profile");
+  await success.currentPage.onKey(key("down"));
+  assert.equal(success.currentPage.state.selected, 2);
+  await success.currentPage.onKey(key("enter"));
+  assert.equal(success.data.install.installProfile.type, "custom");
+  assert.equal(success.data.install.installProfile.label, "自定义安装");
+  assert.equal(success.data.install.installProfile.custom, true);
+  assert.equal(success.currentPage.name, "install-run");
+  assert.match(renderView(success.currentPage.render(), 80, 24, { color: false }).join("\n"), /install-custom\.sh/);
+  await success.currentPage.onKey(key("escape"));
+  assert.equal(success.currentPage.name, "install-profile");
+  await success.currentPage.onKey(key("escape"));
+  assert.equal(success.currentPage.name, "user-hostname");
   await success.currentPage.onKey(key("escape"));
   assert.equal(success.currentPage.name, "partition-next");
   await success.currentPage.onKey(key("escape"));
@@ -818,4 +909,208 @@ test("arch installer enters timezone, time sync, and partition in order", async 
   assert.equal(failure.currentPage.state.iserror, true);
   assert.match(failure.currentPage.state.pstatus, /退出码 7/);
   failure.quit();
+});
+
+test("arch installer mount selection lists partitions from every disk", async () => {
+  const fakeBin = fs.mkdtempSync(path.join(os.tmpdir(), "page-tui-fake-bin-"));
+  writeExecutable(
+    path.join(fakeBin, "lsblk"),
+    `#!/bin/sh
+set -eu
+args="$*"
+case "$args" in
+  *NAME,SIZE,TYPE,MODEL*)
+    printf '/dev/diskA 100G disk DiskA\\n/dev/diskB 20G disk DiskB\\n'
+    ;;
+  *NAME,SIZE,FSTYPE,TYPE,MOUNTPOINT*)
+    case "$args" in
+      */dev/diskA*)
+        printf '/dev/diskA1 80G ext4 part\\n'
+        ;;
+      */dev/diskB*)
+        printf '/dev/diskB1 512M vfat part\\n'
+        ;;
+      *)
+        printf '/dev/diskA1 80G ext4 part\\n/dev/diskB1 512M vfat part\\n'
+        ;;
+    esac
+    ;;
+  *)
+    exit 2
+    ;;
+esac
+`
+  );
+  writeExecutable(path.join(fakeBin, "cfdisk"), "#!/bin/sh\nexit 0\n");
+
+  const definition = installerDefinition();
+  const wiredActions = definition.pages["First Info"].keys.enter[0].if.else[0].if.else;
+  wiredActions.find((action) => action.call).call.sh = "exit 0";
+  const timezoneActions = definition.pages.timezone.keys.enter[0].if.else[0].if.else;
+  timezoneActions.find((action) => action.call).call.sh = "exit 0";
+  definition.pages["time-sync"].on.enter[0].call.sh = "exit 0";
+
+  const app = await startInstaller(definition, {
+    env: { PATH: `${fakeBin}${path.delimiter}${process.env.PATH || ""}` }
+  });
+
+  await app.currentPage.onKey(key("down"));
+  await app.currentPage.onKey(key("enter"));
+  for (let attempt = 0; attempt < 30 && app.currentPage.name !== "timezone"; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.equal(app.currentPage.name, "timezone");
+  await app.currentPage.onKey(key("enter"));
+  for (let attempt = 0; attempt < 30 && app.currentPage.name !== "partition"; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  for (let attempt = 0; attempt < 30 && app.currentPage.state.diskLines.length === 0; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+
+  assert.equal(app.currentPage.name, "partition");
+  assert.deepEqual(app.currentPage.state.diskLines, [
+    "/dev/diskA 100G disk DiskA",
+    "/dev/diskB 20G disk DiskB"
+  ]);
+
+  await app.currentPage.onKey(key("enter"));
+  assert.equal(app.currentPage.state.awaitingDecision, true);
+  await app.currentPage.onKey(key("down"));
+  await app.currentPage.onKey(key("enter"));
+
+  assert.equal(app.currentPage.name, "partition-next");
+  for (let attempt = 0; attempt < 30 && app.currentPage.state.partitionLines.length === 0; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.deepEqual(app.currentPage.state.partitionLines, [
+    "/dev/diskA1  80G  ext4  -",
+    "/dev/diskB1  512M  vfat  -",
+    "下一步"
+  ]);
+
+  await app.currentPage.onKey(key("enter"));
+  await app.currentPage.onKey(key("down"));
+  await app.currentPage.onKey(key("enter"));
+  await app.currentPage.onKey(key("enter"));
+  assert.equal(app.currentPage.name, "partition-next");
+  assert.equal(app.data.install.hasRoot, true);
+
+  await app.currentPage.onKey(key("down"));
+  await app.currentPage.onKey(key("enter"));
+  await app.currentPage.onKey(key("down"));
+  await app.currentPage.onKey(key("down"));
+  await app.currentPage.onKey(key("enter"));
+  await app.currentPage.onKey(key("enter"));
+  assert.equal(app.currentPage.name, "partition-next");
+  assert.equal(app.data.install.hasBoot, true);
+
+  await app.currentPage.onKey(key("down"));
+  await app.currentPage.onKey(key("enter"));
+  assert.equal(app.data.install.partitionReady, true);
+  assert.equal(app.currentPage.name, "user-hostname");
+  app.quit();
+});
+
+shellTest("arch installer install runner dispatches the selected script with saved environment", async () => {
+  const definition = installerDefinition();
+  const calls = shellCalls(definition.pages["install-run"].keys.enter);
+  const basicCall = calls.find((call) => call.sh.includes("install-basic.sh"));
+  const fullCall = calls.find((call) => call.sh.includes("install-full.sh"));
+  const customCall = calls.find((call) => call.sh.includes("install-custom.sh"));
+  assert.ok(basicCall);
+  assert.ok(fullCall);
+  assert.ok(customCall);
+  assert.equal(Object.hasOwn(basicCall.env, "INSTALL_PACKAGES_CSV"), false);
+  assert.equal(Object.hasOwn(fullCall.env, "INSTALL_PACKAGES_CSV"), false);
+  assert.equal(Object.hasOwn(customCall.env, "INSTALL_PACKAGES_CSV"), true);
+  assert.equal(Object.hasOwn(basicCall.env, "MOUNT_PLAN_TSV"), true);
+  assert.equal(Object.hasOwn(fullCall.env, "MOUNT_PLAN_TSV"), true);
+  assert.equal(Object.hasOwn(customCall.env, "MOUNT_PLAN_TSV"), true);
+
+  basicCall.sh = "exit 41";
+  basicCall.stdio = "pipe";
+  fullCall.sh = "exit 42";
+  fullCall.stdio = "pipe";
+  customCall.sh = [
+    'test "$INSTALL_PROFILE" = "custom"',
+    'test "$INSTALL_PROFILE_LABEL" = "自定义安装"',
+    'test "$INSTALL_PROFILE_CUSTOM" = "true"',
+    'test "$INSTALL_PACKAGES_CSV" = "base,linux,linux-firmware"',
+    'test "$SYSTEM_LANG" = "zh_CN.UTF-8"',
+    'test "$SYSTEM_KEYMAP" = "us"',
+    'test "$ROOT_PARTITION_LINE" = "/dev/diskA1  80G  ext4  -"',
+    'test "$ROOT_MOUNT_POINT" = "/mnt"',
+    'test "$ROOT_FORMAT" = "ext4"',
+    'test "$BOOT_PARTITION_LINE" = "/dev/diskB1  512M  vfat  -"',
+    'test "$BOOT_MOUNT_POINT" = "/mnt/boot"',
+    'test "$BOOT_FORMAT" = "vfat"',
+    'test "$MOUNT_PLAN_COUNT" = "2"',
+    'printf "%s" "$MOUNT_PLAN_TSV" | grep -F "$ROOT_PARTITION_LINE" >/dev/null',
+    'printf "%s" "$MOUNT_PLAN_TSV" | grep -F "$BOOT_PARTITION_LINE" >/dev/null',
+    'printf "%s" "$MOUNT_PLAN_TSV" | grep -F "$(printf "\\troot\\t/mnt\\text4")" >/dev/null',
+    'printf "%s" "$MOUNT_PLAN_TSV" | grep -F "$(printf "\\tboot\\t/mnt/boot\\tvfat")" >/dev/null',
+    'test "$NEW_USER" = "arch"',
+    'test "$NEW_USER_PASSWORD" = "secret"',
+    'test "$ROOT_PASSWORD" = "root-secret"',
+    'test "$ROOT_PASSWORD_SAME_AS_USER" = "false"',
+    'test "$HOSTNAME" = "archlinux"',
+    "printf custom"
+  ].join(" && ");
+  customCall.stdio = "pipe";
+  customCall.stdout = "state.scriptOutput";
+
+  const app = createDeclarativeApp({
+    definition,
+    initialPage: "install-run",
+    data: {
+      system: {
+        lang: "zh_CN.UTF-8",
+        keymap: "us"
+      },
+      install: {
+        mountPlan: [{ partition: "/dev/diskA1" }, { partition: "/dev/diskB1" }],
+        mountPlanTsv: "/dev/diskA1  80G  ext4  -\troot\t/mnt\text4\n/dev/diskB1  512M  vfat  -\tboot\t/mnt/boot\tvfat\n",
+        hasRoot: true,
+        hasBoot: true,
+        partitionReady: true,
+        rootPartition: {
+          line: "/dev/diskA1  80G  ext4  -",
+          format: "ext4",
+          mountPoint: "/mnt"
+        },
+        bootPartition: {
+          line: "/dev/diskB1  512M  vfat  -",
+          format: "vfat",
+          mountPoint: "/mnt/boot"
+        },
+        newUser: {
+          name: "arch",
+          password: "secret"
+        },
+        rootPassword: "root-secret",
+        rootPasswordSameAsUser: false,
+        hostname: "archlinux",
+        userReady: true,
+        installProfile: {
+          type: "custom",
+          label: "自定义安装",
+          description: "custom",
+          packages: ["base", "linux", "linux-firmware"],
+          custom: true
+        },
+        installProfileReady: true
+      }
+    },
+    terminal: new Terminal({ input: new FakeInput(), output: new FakeOutput() }),
+    renderer: { render: () => [] }
+  });
+
+  await app.start();
+  await app.currentPage.onKey(key("enter"));
+  assert.equal(app.currentPage.state.exitCode, 0);
+  assert.equal(app.currentPage.state.failed, false);
+  assert.equal(app.currentPage.state.scriptOutput, "custom");
+  assert.match(app.currentPage.state.status, /执行完成/);
+  app.quit();
 });

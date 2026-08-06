@@ -433,6 +433,8 @@ service 的详细说明见 [07 - Service 与 Node.js 业务代码](./07-services
 
 也可以直接调用外部 shell 命令。默认会阻塞等待命令结束。只要配置了输出字段或回调，框架就会自动捕获 stdout 和 stderr：
 
+在 Unix-like 系统上，`sh` 默认通过 `/bin/sh` 执行，不会继承当前交互 shell；需要 `bash`、`fish` 等解释器时请显式设置 `interpreter`。
+
 ~~~yaml
 - call:
     sh: "printf hello"
